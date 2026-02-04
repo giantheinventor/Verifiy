@@ -1,4 +1,5 @@
 import Versions from './components/Versions'
+import { AudioCapture } from './components/AudioCapture'
 import electronLogo from './assets/electron.svg'
 
 function App(): React.JSX.Element {
@@ -8,6 +9,9 @@ function App(): React.JSX.Element {
     <>
       <img alt="logo" className="logo" src={electronLogo} />
       <div className="creator">Powered by electron-vite</div>
+
+      <AudioCapture />
+
       <div className="text">
         Build an Electron app with <span className="react">React</span>
         &nbsp;and <span className="ts">TypeScript</span>
