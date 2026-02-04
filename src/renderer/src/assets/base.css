@@ -21,6 +21,16 @@
   --ev-button-alt-hover-border: transparent;
   --ev-button-alt-hover-text: var(--ev-c-text-1);
   --ev-button-alt-hover-bg: var(--ev-c-gray-2);
+
+  /* App Theme Colors - Mint Cyan */
+  --app-primary: #80deea;
+  /* Mint cyan */
+  --app-primary-dark: #4dd0e1;
+  /* Darker mint for gradients */
+  --app-primary-light: #b2ebf2;
+  /* Lighter mint for hover */
+  --app-primary-glow: rgba(128, 222, 234, 0.4);
+  /* Mint glow effect */
 }
 
 :root {
