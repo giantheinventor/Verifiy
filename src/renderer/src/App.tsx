@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import './assets/main.css'
+import { AudioCapture } from './components/AudioCapture'
 
 interface Card {
   id: number
@@ -104,6 +105,8 @@ function App(): React.JSX.Element {
           <button className="toggle-switch" onClick={toggleMode} aria-label="Toggle mode">
             <span className={`toggle-slider ${mode === 'mic' ? 'active' : ''}`} />
           </button>
+
+          <AudioCapture />
 
           <button className={`icon-button ${mode === 'mic' ? 'active' : ''}`} aria-label="Microphone">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
