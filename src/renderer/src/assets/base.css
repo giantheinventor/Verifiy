@@ -31,6 +31,19 @@
   /* Lighter mint for hover */
   --app-primary-glow: rgba(128, 222, 234, 0.4);
   /* Mint glow effect */
+
+  /* Verdict Colors */
+  --verdict-pending-bg: rgba(158, 158, 158, 0.15);
+  --verdict-pending-border: #9e9e9e;
+  --verdict-pending-text: #757575;
+
+  --verdict-true-bg: rgba(76, 175, 80, 0.15);
+  --verdict-true-border: #388e3c;
+  --verdict-true-text: #2e7d32;
+
+  --verdict-false-bg: rgba(255, 152, 0, 0.15);
+  --verdict-false-border: #e65100;
+  --verdict-false-text: #bf360c;
 }
 
 :root {

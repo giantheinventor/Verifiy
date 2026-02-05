@@ -240,13 +240,37 @@ body {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   border: 1px solid #e8e8e8;
   flex-shrink: 0;
+  transition: all 0.3s ease;
+}
+
+/* Claim Card - Pending State */
+.claim-card {
+  background: var(--verdict-pending-bg);
+  border: 2px solid var(--verdict-pending-border);
+}
+
+.claim-card.verdict-true,
+.claim-card.verdict-mixed {
+  background: var(--verdict-true-bg);
+  border-color: var(--verdict-true-border);
+}
+
+.claim-card.verdict-false,
+.claim-card.verdict-misleading {
+  background: var(--verdict-false-bg);
+  border-color: var(--verdict-false-border);
+}
+
+.claim-card.verdict-unverified {
+  background: var(--verdict-pending-bg);
+  border-color: var(--verdict-pending-border);
 }
 
 .card-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
+  align-items: flex-start;
+  gap: 12px;
 }
 
 .card-title {
@@ -254,6 +278,44 @@ body {
   font-weight: 600;
   color: #333;
   margin: 0;
+  flex: 1;
+}
+
+/* Verdict Badge */
+.verdict-badge {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.verdict-badge.pending {
+  background: var(--verdict-pending-bg);
+  color: var(--verdict-pending-text);
+  border: 1px solid var(--verdict-pending-border);
+}
+
+.verdict-badge.true,
+.verdict-badge.mixed {
+  background: var(--verdict-true-bg);
+  color: var(--verdict-true-text);
+  border: 1px solid var(--verdict-true-border);
+}
+
+.verdict-badge.false,
+.verdict-badge.misleading {
+  background: var(--verdict-false-bg);
+  color: var(--verdict-false-text);
+  border: 1px solid var(--verdict-false-border);
+}
+
+.verdict-badge.unverified {
+  background: var(--verdict-pending-bg);
+  color: var(--verdict-pending-text);
+  border: 1px solid var(--verdict-pending-border);
 }
 
 .card-timestamp {
@@ -265,6 +327,40 @@ body {
   font-size: 14px;
   color: #555;
   margin: 0;
+  margin-top: 8px;
+}
+
+/* Source Boxes */
+.card-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.source-box {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  color: #555;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  max-width: 180px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.source-box:hover {
+  background: var(--app-primary-light);
+  border-color: var(--app-primary);
+  color: #333;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
 }
 
 .context-footer {
