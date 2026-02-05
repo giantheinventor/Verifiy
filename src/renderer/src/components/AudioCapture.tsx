@@ -46,19 +46,33 @@ export function AudioCapture({ isListening, onClick, mode, onAudioData }: AudioC
 
     const startCapture = async (): Promise<void> => {
         try {
-            const stream = await navigator.mediaDevices.getDisplayMedia({
-                video: { displaySurface: 'monitor' as const },
-                audio: {
-                    echoCancellation: false,
-                    noiseSuppression: false,
-                    autoGainControl: false
-                } as MediaTrackConstraints
-            })
+            let stream: MediaStream
+
+            if (mode === 'mic') {
+                // Microphone capture via getUserMedia
+                stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }
+                })
+            } else {
+                // Screen audio capture via getDisplayMedia
+                stream = await navigator.mediaDevices.getDisplayMedia({
+                    video: { displaySurface: 'monitor' as const },
+                    audio: {
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false
+                    } as MediaTrackConstraints
+                })
+            }
 
             const audioTracks = stream.getAudioTracks()
 
             if (audioTracks.length === 0) {
-                stream.getVideoTracks().forEach((t) => t.stop())
+                stream.getTracks().forEach((t) => t.stop())
                 return
             }
 
@@ -119,14 +133,16 @@ export function AudioCapture({ isListening, onClick, mode, onAudioData }: AudioC
         setVolume(0)
     }
 
-    // Start/stop capture based on isListening prop
+    // Start/stop capture based on isListening prop and mode changes
     useEffect(() => {
         if (isListening) {
+            // Stop any existing capture first (in case mode changed)
+            stopCapture()
             startCapture()
         } else {
             stopCapture()
         }
-    }, [isListening])
+    }, [isListening, mode])
 
     useEffect(() => {
         return () => {
@@ -134,6 +150,7 @@ export function AudioCapture({ isListening, onClick, mode, onAudioData }: AudioC
             audioContextRef.current?.close()
         }
     }, [])
+
 
     const handleClick = (): void => {
         onClick()
