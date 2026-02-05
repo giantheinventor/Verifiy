@@ -22,15 +22,51 @@
   --ev-button-alt-hover-text: var(--ev-c-text-1);
   --ev-button-alt-hover-bg: var(--ev-c-gray-2);
 
-  /* App Theme Colors - Mint Cyan */
+  /* App Theme Colors - Mint Cyan (Light Mode) */
   --app-primary: #80deea;
-  /* Mint cyan */
   --app-primary-dark: #4dd0e1;
-  /* Darker mint for gradients */
   --app-primary-light: #b2ebf2;
-  /* Lighter mint for hover */
   --app-primary-glow: rgba(128, 222, 234, 0.4);
-  /* Mint glow effect */
+
+  /* Light Mode Theme Palette */
+  --theme-bg-primary: #f8f9fa;
+  --theme-bg-secondary: #fff;
+  --theme-bg-tertiary: #f0f0f0;
+  --theme-bg-hover: #e8e8e8;
+  --theme-bg-active: #ddd;
+  --theme-text-primary: #333;
+  --theme-text-secondary: #555;
+  --theme-text-muted: #888;
+  --theme-border: #e8e8e8;
+  --theme-border-light: #e0e0e0;
+  --theme-card-shadow: rgba(0, 0, 0, 0.08);
+  --theme-button-shadow: rgba(0, 0, 0, 0.1);
+  --theme-button-highlight: rgba(255, 255, 255, 0.8);
+  --theme-mic-gradient-start: #e6e9ef;
+  --theme-mic-gradient-end: #d1d5dc;
+  --theme-focus-ring: #0077aa;
+  --theme-accent: var(--app-primary);
+  --theme-accent-dark: var(--app-primary-dark);
+
+  /* Dark Mode Theme Palette - Warm Charcoal */
+  --dark-bg-primary: #1c1c1e;
+  --dark-bg-secondary: #2c2c2e;
+  --dark-bg-tertiary: #3c3c3e;
+  --dark-bg-hover: #4c4c4e;
+  --dark-bg-active: #5c5c5e;
+  --dark-text-primary: #eee;
+  --dark-text-secondary: #ccc;
+  --dark-text-muted: #999;
+  --dark-border: #333;
+  --dark-border-light: #444;
+  --dark-card-shadow: rgba(0, 0, 0, 0.4);
+  --dark-button-shadow: rgba(0, 0, 0, 0.4);
+  --dark-button-highlight: rgba(255, 255, 255, 0.05);
+  --dark-mic-gradient-start: #2c2c2e;
+  --dark-mic-gradient-end: #1c1c1e;
+  --dark-focus-ring: #64d9ca;
+  --dark-accent: #64d9ca;
+  --dark-accent-dark: #4db6ac;
 
   /* Verdict Colors */
   --verdict-pending-bg: rgba(158, 158, 158, 0.15);

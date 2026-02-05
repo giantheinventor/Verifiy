@@ -1,20 +1,19 @@
 import { useState, useRef, useEffect } from 'react'
 import { downsampleTo16k, createPcmBlob } from '../utils/audioUtils'
+import Icons from './Icons'
 import type { Blob as GeminiBlob } from '@google/genai'
 
 interface AudioCaptureProps {
     isListening: boolean
     onClick: () => void
-    screenEnabled: boolean
-    micEnabled: boolean
+    inputMode: 'screen' | 'mic' | 'both' | 'none'
     onAudioData?: (blob: GeminiBlob) => void
 }
 
 export function AudioCapture({
     isListening,
     onClick,
-    screenEnabled,
-    micEnabled,
+    inputMode,
     onAudioData
 }: AudioCaptureProps): React.JSX.Element {
     const [volume, setVolume] = useState(0)
@@ -230,6 +229,10 @@ export function AudioCapture({
         setVolume(0)
     }
 
+    // Derive enabled states from inputMode
+    const micEnabled = inputMode === 'mic' || inputMode === 'both'
+    const screenEnabled = inputMode === 'screen' || inputMode === 'both'
+
     // Handle mic enable/disable
     useEffect(() => {
         if (isListening && micEnabled) {
@@ -266,12 +269,6 @@ export function AudioCapture({
         onClick()
     }
 
-    // Determine which icon to show
-    const showBothIcon = screenEnabled && micEnabled
-    const showMicIcon = micEnabled && !screenEnabled
-    const showScreenIcon = screenEnabled && !micEnabled
-    const showDefaultIcon = !screenEnabled && !micEnabled
-
     return (
         <div className="audio-capture-container" style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
             <button
@@ -279,46 +276,8 @@ export function AudioCapture({
                 onClick={handleClick}
                 aria-label={isListening ? 'Stop listening' : 'Start listening'}
             >
-                {showBothIcon ? (
-                    // Combined icon - modern layered design: screen behind, mic in front
-                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                        {/* Screen (background, slightly transparent) */}
-                        <g opacity="0.5">
-                            <rect x="2" y="2" width="20" height="12" rx="2" />
-                            <line x1="9" y1="18" x2="15" y2="18" />
-                            <line x1="12" y1="14" x2="12" y2="18" />
-                        </g>
-                        {/* Mic (foreground, centered) */}
-                        <g transform="translate(0, 4)">
-                            <path d="M12 1a2.5 2.5 0 0 0-2.5 2.5v6a2.5 2.5 0 0 0 5 0v-6A2.5 2.5 0 0 0 12 1z" strokeWidth="1.8" />
-                            <path d="M17 8v1.5a5 5 0 0 1-10 0V8" strokeWidth="1.8" />
-                            <line x1="12" y1="14.5" x2="12" y2="17" strokeWidth="1.8" />
-                            <line x1="9" y1="17" x2="15" y2="17" strokeWidth="1.8" />
-                        </g>
-                    </svg>
-                ) : showMicIcon ? (
-                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                        <line x1="12" y1="19" x2="12" y2="23" />
-                        <line x1="8" y1="23" x2="16" y2="23" />
-                    </svg>
-                ) : showScreenIcon ? (
-                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                        <rect x="2" y="3" width="20" height="14" rx="2" />
-                        <line x1="8" y1="21" x2="16" y2="21" />
-                        <line x1="12" y1="17" x2="12" y2="21" />
-                    </svg>
-                ) : showDefaultIcon ? (
-                    // Default - show waveform/audio icon when nothing selected
-                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                        <line x1="4" y1="12" x2="4" y2="12" strokeLinecap="round" />
-                        <line x1="8" y1="8" x2="8" y2="16" strokeLinecap="round" />
-                        <line x1="12" y1="5" x2="12" y2="19" strokeLinecap="round" />
-                        <line x1="16" y1="8" x2="16" y2="16" strokeLinecap="round" />
-                        <line x1="20" y1="12" x2="20" y2="12" strokeLinecap="round" />
-                    </svg>
-                ) : null}
+                {/* Soundwave icon - always the same */}
+                <Icons.Soundwave size={80} />
             </button>
 
             {/* Volume Meter */}

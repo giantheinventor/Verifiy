@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import './assets/main.css'
 import { AudioCapture } from './components/AudioCapture'
+import Icons from './components/Icons'
 import { connectToLiveSession, verifyClaimWithSearch } from './services/geminiService'
 import type { Blob as GeminiBlob, Session } from '@google/genai'
 
@@ -17,13 +18,27 @@ interface Card {
 
 function App(): React.JSX.Element {
   const [isListening, setIsListening] = useState(false)
-  const [screenEnabled, setScreenEnabled] = useState(true)
-  const [micEnabled, setMicEnabled] = useState(false)
+  const [inputMode, setInputMode] = useState<'screen' | 'mic' | 'both' | 'none'>('screen')
   const [cards, setCards] = useState<Card[]>([])
   const [isConnecting, setIsConnecting] = useState(false)
+  const [isDarkMode, setIsDarkMode] = useState(window.matchMedia('(prefers-color-scheme: dark)').matches)
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set())
   const cardListRef = useRef<HTMLDivElement>(null)
   const liveSessionRef = useRef<Session | null>(null)
+
+  // Sync with system theme preference
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+    const handleChange = (e: MediaQueryListEvent): void => setIsDarkMode(e.matches)
+
+    mediaQuery.addEventListener('change', handleChange)
+    return () => mediaQuery.removeEventListener('change', handleChange)
+  }, [])
+
+  // Toggle dark mode (manual override)
+  const toggleDarkMode = (): void => {
+    setIsDarkMode(prev => !prev)
+  }
 
   // Auto-scroll to bottom when cards change
   useEffect(() => {
@@ -189,10 +204,13 @@ function App(): React.JSX.Element {
     setIsListening(newListening)
 
     if (newListening) {
-      const sources: string[] = []
-      if (screenEnabled) sources.push('Screen')
-      if (micEnabled) sources.push('Microphone')
-      addCard('Listening Started', `Sources: ${sources.join(' + ') || 'None'}`)
+      const modeLabels = {
+        screen: 'Screen',
+        mic: 'Microphone',
+        both: 'Screen + Microphone',
+        none: 'No input'
+      }
+      addCard('Listening Started', `Source: ${modeLabels[inputMode]}`)
       await connectLiveSession()
     } else {
       addCard('Listening Stopped', 'Session paused')
@@ -200,19 +218,19 @@ function App(): React.JSX.Element {
     }
   }
 
-  const toggleScreen = (): void => {
-    const newValue = !screenEnabled
-    setScreenEnabled(newValue)
+  const cycleInputMode = (): void => {
+    const modes: Array<'screen' | 'mic' | 'both' | 'none'> = ['screen', 'mic', 'both', 'none']
+    const currentIndex = modes.indexOf(inputMode)
+    const nextMode = modes[(currentIndex + 1) % modes.length]
+    setInputMode(nextMode)
     if (isListening) {
-      addCard('Source Changed', `Screen audio ${newValue ? 'enabled' : 'disabled'}`)
-    }
-  }
-
-  const toggleMic = (): void => {
-    const newValue = !micEnabled
-    setMicEnabled(newValue)
-    if (isListening) {
-      addCard('Source Changed', `Microphone ${newValue ? 'enabled' : 'disabled'}`)
+      const modeLabels = {
+        screen: 'Screen',
+        mic: 'Microphone',
+        both: 'Screen + Microphone',
+        none: 'No input'
+      }
+      addCard('Source Changed', `Now using: ${modeLabels[nextMode]}`)
     }
   }
 
@@ -224,49 +242,27 @@ function App(): React.JSX.Element {
   }, [disconnectLiveSession])
 
   return (
-    <div className="app-container">
+    <div className={`app-container ${isDarkMode ? 'dark-mode' : ''}`}>
       {/* Header */}
       <header className="header">
-        <button className="menu-button" aria-label="Menu">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <line x1="3" y1="6" x2="21" y2="6" />
-            <line x1="3" y1="12" x2="21" y2="12" />
-            <line x1="3" y1="18" x2="21" y2="18" />
-          </svg>
+        <button className="menu-button" onClick={toggleDarkMode} aria-label="Toggle dark mode" title={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}>
+          <Icons.Menu size={24} />
         </button>
 
         <div className="header-controls">
-          {/* Screen Audio Toggle */}
+          {/* Input Source Cycle Button */}
           <button
-            className={`source-button ${screenEnabled ? 'active' : ''}`}
-            onClick={toggleScreen}
-            aria-label="Toggle screen audio"
+            className={`source-button ${inputMode !== 'none' ? 'active' : ''}`}
+            onClick={cycleInputMode}
+            aria-label="Cycle input source"
+            title={`Current: ${inputMode === 'screen' ? 'Screen' : inputMode === 'mic' ? 'Microphone' : inputMode === 'both' ? 'Both' : 'None'}`}
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="2" y="3" width="20" height="14" rx="2" />
-              <line x1="8" y1="21" x2="16" y2="21" />
-              <line x1="12" y1="17" x2="12" y2="21" />
-            </svg>
-            <span>Screen</span>
-          </button>
-
-          {/* Microphone Toggle */}
-          <button
-            className={`source-button ${micEnabled ? 'active' : ''}`}
-            onClick={toggleMic}
-            aria-label="Toggle microphone"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-              <line x1="12" y1="19" x2="12" y2="23" />
-              <line x1="8" y1="23" x2="16" y2="23" />
-            </svg>
-            <span>Mic</span>
+            {inputMode === 'screen' && <Icons.Screen size={20} />}
+            {inputMode === 'mic' && <Icons.Mic size={20} />}
+            {inputMode === 'both' && <Icons.Merge size={20} />}
+            {inputMode === 'none' && <Icons.NoInput size={20} />}
           </button>
         </div>
-
-        {isConnecting && <span className="connecting-indicator">Connecting...</span>}
       </header>
 
       {/* Main Content */}
@@ -275,8 +271,7 @@ function App(): React.JSX.Element {
         <AudioCapture
           isListening={isListening}
           onClick={handleListenClick}
-          screenEnabled={screenEnabled}
-          micEnabled={micEnabled}
+          inputMode={inputMode}
           onAudioData={handleAudioData}
         />
 
