@@ -59,7 +59,7 @@ function isQuotaError(error: unknown): boolean {
 // --- Fact Check Verification Service ---
 
 interface VerificationResult {
-  verdict: 'True' | 'False' | 'Unverified' | 'Mixed'
+  verdict: 'True' | 'False' | 'Unverified' | 'Mixed' | 'Misleading'
   score: number
   explanation: string
 }
@@ -81,7 +81,7 @@ export async function verifyClaimWithSearch(
         
         Return ONLY a JSON object (no markdown, no explanation outside the JSON) with exactly these fields:
         {
-          "verdict": "True" | "False"  | "Unverified" | "Mixed",
+          "verdict": "True" | "False"  | "Unverified" | "Mixed" | "Misleading",
           "score": 1-5 (integer, 1=Totally False, 5=Totally True),
           "explanation": "A concise (max 2 sentences) explanation"
         }

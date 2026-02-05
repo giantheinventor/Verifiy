@@ -4,6 +4,7 @@ import { AudioCapture } from './components/AudioCapture'
 import Icons from './components/Icons'
 import { Walkthrough } from './components/Walkthrough'
 import { connectToLiveSession, verifyClaimWithSearch } from './services/geminiService'
+import { requestNotificationPermission, sendClaimNotification } from './utils/notificationUtils'
 import type { Blob as GeminiBlob, Session } from '@google/genai'
 
 interface Card {
@@ -35,6 +36,11 @@ function App(): React.JSX.Element {
 
     mediaQuery.addEventListener('change', handleChange)
     return () => mediaQuery.removeEventListener('change', handleChange)
+  }, [])
+
+  // Request notification permission
+  useEffect(() => {
+    requestNotificationPermission()
   }, [])
 
   // Toggle dark mode (manual override)
@@ -120,6 +126,17 @@ function App(): React.JSX.Element {
         isVerifying: false,
         sources: sources
       })
+
+      // Send notification if claim is false/misleading and app is in background
+      if (
+        (result.verdict === 'False' || result.verdict === 'Misleading') &&
+        document.visibilityState === 'hidden'
+      ) {
+        sendClaimNotification(
+          'False Claim Detected',
+          `"${claimTitle}" was detected as ${result.verdict}.`
+        )
+      }
     } catch (error) {
       console.error('Verification error:', error)
       updateCard(cardId, {
