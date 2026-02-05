@@ -1,12 +1,20 @@
 import { useState, useRef, useEffect } from 'react'
+import { downsampleTo16k, createPcmBlob } from '../utils/audioUtils'
+import type { Blob as GeminiBlob } from '@google/genai'
 
-export function AudioCapture(): React.JSX.Element {
-    const [isCapturing, setIsCapturing] = useState(false)
+interface AudioCaptureProps {
+    isListening: boolean
+    onClick: () => void
+    mode: 'screen' | 'mic'
+    onAudioData?: (blob: GeminiBlob) => void
+}
+
+export function AudioCapture({ isListening, onClick, mode, onAudioData }: AudioCaptureProps): React.JSX.Element {
     const [volume, setVolume] = useState(0)
-    const [status, setStatus] = useState('')
     const streamRef = useRef<MediaStream | null>(null)
     const audioContextRef = useRef<AudioContext | null>(null)
     const analyserRef = useRef<AnalyserNode | null>(null)
+    const processorRef = useRef<ScriptProcessorNode | null>(null)
     const animationFrameRef = useRef<number | null>(null)
 
     const updateVolume = (): void => {
@@ -38,8 +46,6 @@ export function AudioCapture(): React.JSX.Element {
 
     const startCapture = async (): Promise<void> => {
         try {
-            setStatus('Requesting system audio...')
-
             const stream = await navigator.mediaDevices.getDisplayMedia({
                 video: { displaySurface: 'monitor' as const },
                 audio: {
@@ -52,14 +58,12 @@ export function AudioCapture(): React.JSX.Element {
             const audioTracks = stream.getAudioTracks()
 
             if (audioTracks.length === 0) {
-                setStatus('No audio track - check permissions')
                 stream.getVideoTracks().forEach((t) => t.stop())
                 return
             }
 
             audioTracks[0].addEventListener('ended', () => stopCapture())
 
-            setStatus(`Capturing: ${audioTracks[0].label || 'System Audio'}`)
             streamRef.current = stream
 
             const audioContext = new AudioContext({ sampleRate: 48000 })
@@ -70,34 +74,41 @@ export function AudioCapture(): React.JSX.Element {
             analyser.fftSize = 2048
             analyser.smoothingTimeConstant = 0.3
 
-            // Connect: source -> analyser -> silent gain -> destination
+            // Create ScriptProcessorNode for audio data capture (4096 samples buffer)
+            const processor = audioContext.createScriptProcessor(4096, 1, 1)
+            processor.onaudioprocess = (event): void => {
+                if (onAudioData) {
+                    const inputData = event.inputBuffer.getChannelData(0)
+                    const downsampled = downsampleTo16k(inputData, audioContext.sampleRate)
+                    const pcmBlob = createPcmBlob(downsampled)
+                    onAudioData(pcmBlob)
+                }
+            }
+
+            // Connect: source -> analyser -> processor -> silent gain -> destination
             const gainNode = audioContext.createGain()
             gainNode.gain.value = 0
             sourceNode.connect(analyser)
-            analyser.connect(gainNode)
+            analyser.connect(processor)
+            processor.connect(gainNode)
             gainNode.connect(audioContext.destination)
 
             audioContextRef.current = audioContext
             analyserRef.current = analyser
+            processorRef.current = processor
 
-            setIsCapturing(true)
             updateVolume()
         } catch (e) {
-            const error = e as DOMException
-            let errorMessage = error.message || 'Unknown error'
-
-            if (error.name === 'NotReadableError') {
-                errorMessage = 'Grant Screen Recording permission in System Settings, then restart the app'
-            } else if (error.name === 'NotAllowedError') {
-                errorMessage = 'Permission denied'
-            }
-
-            setStatus(errorMessage)
+            console.error('Audio capture error:', e)
         }
     }
 
     const stopCapture = (): void => {
         if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current)
+        if (processorRef.current) {
+            processorRef.current.disconnect()
+            processorRef.current = null
+        }
         streamRef.current?.getTracks().forEach((t) => t.stop())
         audioContextRef.current?.close()
 
@@ -105,10 +116,17 @@ export function AudioCapture(): React.JSX.Element {
         audioContextRef.current = null
         analyserRef.current = null
 
-        setIsCapturing(false)
         setVolume(0)
-        setStatus('')
     }
+
+    // Start/stop capture based on isListening prop
+    useEffect(() => {
+        if (isListening) {
+            startCapture()
+        } else {
+            stopCapture()
+        }
+    }, [isListening])
 
     useEffect(() => {
         return () => {
@@ -117,77 +135,59 @@ export function AudioCapture(): React.JSX.Element {
         }
     }, [])
 
+    const handleClick = (): void => {
+        onClick()
+    }
+
     return (
-        <div
-            style={{
-                padding: '20px',
-                background: '#1a1a1a',
-                borderRadius: '12px',
-                margin: '20px',
-                color: '#fff'
-            }}
-        >
-            <h3 style={{ margin: '0 0 15px' }}>System Audio</h3>
+        <div className="audio-capture-container" style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+            <button
+                className={`mic-button ${isListening ? 'listening' : ''}`}
+                onClick={handleClick}
+                aria-label={isListening ? 'Stop listening' : 'Start listening'}
+            >
+                {mode === 'mic' ? (
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                        <line x1="12" y1="19" x2="12" y2="23" />
+                        <line x1="8" y1="23" x2="16" y2="23" />
+                    </svg>
+                ) : (
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <rect x="2" y="3" width="20" height="14" rx="2" />
+                        <line x1="8" y1="21" x2="16" y2="21" />
+                        <line x1="12" y1="17" x2="12" y2="21" />
+                    </svg>
+                )}
+            </button>
 
-            {!isCapturing ? (
-                <>
-                    <button
-                        onClick={startCapture}
-                        style={{
-                            padding: '10px 20px',
-                            background: '#007AFF',
-                            color: '#fff',
-                            border: 'none',
-                            borderRadius: '8px',
-                            cursor: 'pointer'
-                        }}
-                    >
-                        Start Capture
-                    </button>
-                    <div style={{ fontSize: '11px', color: '#666', marginTop: '10px', lineHeight: '1.4' }}>
-                        <div>⚠️ Play audio (music/video) to test capture</div>
-                        <div style={{ marginTop: '5px' }}>💡 Run from terminal for proper permissions</div>
-                    </div>
-                </>
-            ) : (
-                <button
-                    onClick={stopCapture}
-                    style={{
-                        padding: '10px 20px',
-                        background: '#FF3B30',
-                        color: '#fff',
-                        border: 'none',
-                        borderRadius: '8px',
-                        cursor: 'pointer'
-                    }}
-                >
-                    Stop
-                </button>
-            )}
-
-            {status && (
-                <div style={{ fontSize: '12px', color: '#888', marginTop: '10px' }}>{status}</div>
-            )}
-
-            {isCapturing && (
-                <div style={{ marginTop: '15px' }}>
-                    <div
-                        style={{ height: '10px', background: '#333', borderRadius: '5px', overflow: 'hidden' }}
-                    >
-                        <div
-                            style={{
-                                width: `${(volume / 255) * 100}%`,
-                                height: '100%',
-                                background: '#4CD964',
-                                transition: 'width 0.05s'
-                            }}
-                        />
-                    </div>
-                    <div style={{ fontSize: '10px', color: '#555', marginTop: '5px', textAlign: 'right' }}>
-                        {volume}
-                    </div>
+            {/* Volume Meter for Testing */}
+            <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '5px'
+            }}>
+                <div style={{
+                    width: '20px',
+                    height: '150px',
+                    background: 'rgba(255,255,255,0.1)',
+                    borderRadius: '10px',
+                    overflow: 'hidden',
+                    display: 'flex',
+                    flexDirection: 'column-reverse'
+                }}>
+                    <div style={{
+                        width: '100%',
+                        height: `${(volume / 255) * 100}%`,
+                        background: volume > 200 ? '#FF3B30' : volume > 100 ? '#FFCC00' : '#4CD964',
+                        transition: 'height 0.05s, background 0.1s',
+                        borderRadius: '10px'
+                    }} />
                 </div>
-            )}
+                <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)' }}>{volume}</span>
+            </div>
         </div>
     )
 }

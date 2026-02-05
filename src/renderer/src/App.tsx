@@ -1,19 +1,25 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import './assets/main.css'
 import { AudioCapture } from './components/AudioCapture'
+import { connectToLiveSession, verifyClaimWithSearch } from './services/geminiService'
+import type { Blob as GeminiBlob, Session } from '@google/genai'
 
 interface Card {
   id: number
   title: string
   content: string
   timestamp: string
+  verdict?: 'True' | 'False' | 'Misleading' | 'Unverified' | 'Mixed'
+  isVerifying?: boolean
 }
 
 function App(): React.JSX.Element {
   const [isListening, setIsListening] = useState(false)
   const [mode, setMode] = useState<'screen' | 'mic'>('screen')
   const [cards, setCards] = useState<Card[]>([])
+  const [isConnecting, setIsConnecting] = useState(false)
   const cardListRef = useRef<HTMLDivElement>(null)
+  const liveSessionRef = useRef<Session | null>(null)
 
   // Auto-scroll to bottom when cards change
   useEffect(() => {
@@ -40,46 +46,174 @@ function App(): React.JSX.Element {
     }])
   }, [])
 
-  const handleMicClick = () => {
-    const newListening = !isListening
-    setIsListening(newListening)
-
-    // Add a card when listening state changes
+  const getTimestamp = (): string => {
     const now = new Date()
-    const timeStr = now.toLocaleTimeString('en-US', {
+    return now.toLocaleTimeString('en-US', {
       hour: 'numeric',
       minute: '2-digit',
       second: '2-digit',
       hour12: true
     })
+  }
 
+  // Generate unique IDs to prevent duplicate keys
+  const nextIdRef = useRef(Date.now())
+  const getNextId = (): number => {
+    nextIdRef.current += 1
+    return nextIdRef.current
+  }
+
+  const addCard = useCallback((title: string, content: string, extra?: Partial<Card>) => {
     setCards(prev => [...prev, {
-      id: Date.now(),
-      title: newListening ? 'Listening Started' : 'Listening Stopped',
-      content: newListening ? 'Waiting for audio input...' : 'Session paused',
-      timestamp: timeStr
+      id: getNextId(),
+      title,
+      content,
+      timestamp: getTimestamp(),
+      ...extra
     }])
+  }, [])
+
+  const updateCard = useCallback((id: number, updates: Partial<Card>) => {
+    setCards(prev => prev.map(card =>
+      card.id === id ? { ...card, ...updates } : card
+    ))
+  }, [])
+
+  // Handle claim detection from Gemini
+  const handleClaimDetected = useCallback(async (claimText: string) => {
+    const cardId = getNextId()
+
+    // Add claim card in verifying state
+    setCards(prev => [...prev, {
+      id: cardId,
+      title: 'Claim Detected',
+      content: claimText,
+      timestamp: getTimestamp(),
+      isVerifying: true
+    }])
+
+    // Verify the claim
+    try {
+      const { result, sources } = await verifyClaimWithSearch(claimText)
+
+      const sourcesText = sources.length > 0
+        ? `\n\nSources: ${sources.map(s => s.title).join(', ')}`
+        : ''
+
+      updateCard(cardId, {
+        title: `Claim: ${result.verdict}`,
+        content: `${claimText}\n\n${result.explanation}${sourcesText}`,
+        verdict: result.verdict,
+        isVerifying: false
+      })
+    } catch (error) {
+      console.error('Verification error:', error)
+      updateCard(cardId, {
+        title: 'Claim: Unverified',
+        content: `${claimText}\n\nCould not verify this claim.`,
+        verdict: 'Unverified',
+        isVerifying: false
+      })
+    }
+  }, [updateCard])
+
+  // Connect to live session
+  const connectLiveSession = useCallback(async () => {
+    if (liveSessionRef.current) return
+
+    setIsConnecting(true)
+    addCard('Connecting', 'Establishing connection to Gemini...')
+
+    try {
+      const session = await connectToLiveSession({
+        onopen: () => {
+          addCard('Connected', 'Live session established. Listening for claims...')
+          setIsConnecting(false)
+        },
+        onclose: () => {
+          addCard('Disconnected', 'Live session closed.')
+          liveSessionRef.current = null
+        },
+        onerror: (error) => {
+          console.error('Live session error:', error)
+          addCard('Error', `Connection error: ${error}`)
+          setIsConnecting(false)
+        },
+        onmessage: async (message: any) => {
+          // Handle Tool Calls (The detection of a claim)
+          if (message.toolCall) {
+            for (const fc of message.toolCall.functionCalls) {
+              if (fc.name === 'detect_claim') {
+                const claimText = fc.args.claim_text
+                handleClaimDetected(claimText)
+
+                // Respond to the tool call so the model knows it was handled
+                session.sendToolResponse({
+                  functionResponses: [{
+                    id: fc.id,
+                    name: fc.name,
+                    response: { result: 'ok' }
+                  }]
+                })
+              }
+            }
+          }
+        }
+      })
+
+      liveSessionRef.current = session
+    } catch (error) {
+      console.error('Failed to connect:', error)
+      addCard('Error', 'Failed to connect to Gemini.')
+      setIsConnecting(false)
+    }
+  }, [addCard, handleClaimDetected])
+
+  // Disconnect live session
+  const disconnectLiveSession = useCallback(() => {
+    if (liveSessionRef.current) {
+      liveSessionRef.current.close()
+      liveSessionRef.current = null
+    }
+  }, [])
+
+  // Handle audio data from AudioCapture - send to Gemini
+  const handleAudioData = useCallback((blob: GeminiBlob) => {
+    if (liveSessionRef.current && blob.data && blob.mimeType) {
+      liveSessionRef.current.sendRealtimeInput({
+        media: {
+          data: blob.data,
+          mimeType: blob.mimeType
+        }
+      })
+    }
+  }, [])
+
+  const handleMicClick = async () => {
+    const newListening = !isListening
+    setIsListening(newListening)
+
+    if (newListening) {
+      addCard('Listening Started', 'Waiting for audio input...')
+      await connectLiveSession()
+    } else {
+      addCard('Listening Stopped', 'Session paused')
+      disconnectLiveSession()
+    }
   }
 
   const toggleMode = () => {
     const newMode = mode === 'screen' ? 'mic' : 'screen'
     setMode(newMode)
-
-    const now = new Date()
-    const timeStr = now.toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: true
-    })
-
-    setCards(prev => [...prev, {
-      id: Date.now(),
-      title: 'Mode Changed',
-      content: `Switched to ${newMode === 'screen' ? 'Screen Share' : 'Microphone'} mode`,
-      timestamp: timeStr
-    }])
+    addCard('Mode Changed', `Switched to ${newMode === 'screen' ? 'Screen Share' : 'Microphone'} mode`)
   }
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      disconnectLiveSession()
+    }
+  }, [disconnectLiveSession])
 
   return (
     <div className="app-container">
@@ -106,8 +240,6 @@ function App(): React.JSX.Element {
             <span className={`toggle-slider ${mode === 'mic' ? 'active' : ''}`} />
           </button>
 
-          <AudioCapture />
-
           <button className={`icon-button ${mode === 'mic' ? 'active' : ''}`} aria-label="Microphone">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
@@ -117,30 +249,29 @@ function App(): React.JSX.Element {
             </svg>
           </button>
         </div>
+
+        {isConnecting && <span className="connecting-indicator">Connecting...</span>}
       </header>
 
       {/* Main Content */}
       <main className="main-content">
         {/* Microphone Button */}
-        <button
-          className={`mic-button ${isListening ? 'listening' : ''}`}
+        <AudioCapture
+          isListening={isListening}
           onClick={handleMicClick}
-          aria-label={isListening ? 'Stop listening' : 'Start listening'}
-        >
-          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-            <line x1="12" y1="19" x2="12" y2="23" />
-            <line x1="8" y1="23" x2="16" y2="23" />
-          </svg>
-        </button>
+          mode={mode}
+          onAudioData={handleAudioData}
+        />
 
         {/* Card List with fade effect */}
         <div className="card-list-container">
           <div className="card-list-fade" />
           <div className="card-list" ref={cardListRef}>
             {cards.map(card => (
-              <div key={card.id} className="context-card">
+              <div
+                key={card.id}
+                className={`context-card ${card.verdict ? `verdict-${card.verdict.toLowerCase()}` : ''} ${card.isVerifying ? 'verifying' : ''}`}
+              >
                 <div className="card-header">
                   <h3 className="card-title">{card.title}</h3>
                   <span className="card-timestamp">{card.timestamp}</span>
