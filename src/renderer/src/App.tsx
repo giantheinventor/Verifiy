@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import './assets/main.css'
 import { AudioCapture } from './components/AudioCapture'
 import Icons from './components/Icons'
+import { Walkthrough } from './components/Walkthrough'
 import { connectToLiveSession, verifyClaimWithSearch } from './services/geminiService'
 import type { Blob as GeminiBlob, Session } from '@google/genai'
 
@@ -23,6 +24,7 @@ function App(): React.JSX.Element {
   const [isConnecting, setIsConnecting] = useState(false)
   const [isDarkMode, setIsDarkMode] = useState(window.matchMedia('(prefers-color-scheme: dark)').matches)
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set())
+  const [showWalkthrough, setShowWalkthrough] = useState(false)
   const cardListRef = useRef<HTMLDivElement>(null)
   const liveSessionRef = useRef<Session | null>(null)
 
@@ -337,9 +339,12 @@ function App(): React.JSX.Element {
       </main>
 
       {/* Help Button */}
-      <button className="help-button" aria-label="Help">
+      <button className="help-button" aria-label="Help" onClick={() => setShowWalkthrough(true)}>
         <span>?</span>
       </button>
+
+      {/* Walkthrough Overlay */}
+      <Walkthrough isOpen={showWalkthrough} onClose={() => setShowWalkthrough(false)} />
     </div>
   )
 }

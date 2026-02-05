@@ -528,3 +528,165 @@ body {
     padding: 20px 24px;
   }
 }
+
+/* ===================== */
+/* Walkthrough Overlay   */
+/* ===================== */
+
+.walkthrough-overlay {
+  position: fixed;
+  inset: 0;
+  background: transparent;
+  z-index: 1000;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.walkthrough-spotlight {
+  position: absolute;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.8);
+  background: transparent;
+  pointer-events: none;
+  transition: all 0.3s ease;
+}
+
+.walkthrough-card {
+  position: fixed;
+  width: 280px;
+  background: var(--bg-secondary);
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-color);
+  z-index: 1001;
+  animation: slideIn 0.3s ease;
+}
+
+.walkthrough-card-bottom {
+  left: 50%;
+  bottom: 15%;
+  transform: translateX(-50%);
+  animation: slideUpFromBottom 0.3s ease;
+}
+
+.walkthrough-card-top {
+  left: 50%;
+  top: 15%;
+  transform: translateX(-50%);
+  animation: slideDownFromTop 0.3s ease;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideUpFromBottom {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+@keyframes slideDownFromTop {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.walkthrough-step-indicator {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.walkthrough-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 8px 0;
+}
+
+.walkthrough-description {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0 0 16px 0;
+}
+
+.walkthrough-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.walkthrough-nav-main {
+  display: flex;
+  gap: 8px;
+}
+
+.walkthrough-btn {
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+}
+
+.walkthrough-btn-skip {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.walkthrough-btn-skip:hover {
+  color: var(--text-secondary);
+}
+
+.walkthrough-btn-back {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.walkthrough-btn-back:hover {
+  background: var(--bg-hover);
+}
+
+.walkthrough-btn-next {
+  background: var(--accent);
+  color: #fff;
+}
+
+.walkthrough-btn-next:hover {
+  background: var(--accent-dark);
+}
