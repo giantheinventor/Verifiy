@@ -114,7 +114,7 @@ export const LIVE_MODEL = 'gemini-2.5-flash-native-audio-latest'
 export const detectClaimTool: FunctionDeclaration = {
   name: 'detect_claim',
   description:
-    'Call this function immediately when you detect a distinct, checkable factual claim in the audio stream.',
+    'Call this function immediately when you detect a distinct, checkable factual claim in the audio stream. Use the same language as the audio stream.',
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -160,8 +160,8 @@ export async function connectToLiveSession(callbacks: LiveSessionCallbacks) {
   exaggerated, or inflammatory. 
   Look for context: If the claim is connected to a previous claim or can be grouped together with other claims, 
   call the tool with the combined claim.
-  Bias toward Over-Detection: If you are unsure whether a statement is a "claim" or just "talk," 
-  always call the tool. It is better to flag a false positive than to miss a verifiable assertion.
+  Only call the tool if it is an actual statement of fact. Do not call the tool for opinions, 
+  personal beliefs, or subjective statements.
   Ignore Sentiment: Do not let the tone (angry, joking, sarcastic) prevent you from extracting the underlying claim.
   Do NOT transcribe normal conversation. Only extract claims.
   Do NOT generate audio or text responses. Remain silent and only use the tool.
