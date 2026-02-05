@@ -20,6 +20,7 @@ function App(): React.JSX.Element {
   const [mode, setMode] = useState<'screen' | 'mic'>('screen')
   const [cards, setCards] = useState<Card[]>([])
   const [isConnecting, setIsConnecting] = useState(false)
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set())
   const cardListRef = useRef<HTMLDivElement>(null)
   const liveSessionRef = useRef<Session | null>(null)
 
@@ -78,13 +79,13 @@ function App(): React.JSX.Element {
   }, [])
 
   // Handle claim detection from Gemini
-  const handleClaimDetected = useCallback(async (claimText: string) => {
+  const handleClaimDetected = useCallback(async (claimTitle: string, claimText: string) => {
     const cardId = getNextId()
 
     // Add claim card in pending state
     setCards(prev => [...prev, {
       id: cardId,
-      title: claimText,
+      title: claimTitle,
       content: '',
       timestamp: getTimestamp(),
       verdict: 'Pending',
@@ -92,7 +93,7 @@ function App(): React.JSX.Element {
       isClaim: true
     }])
 
-    // Verify the claim
+    // Verify the claim using claimText
     try {
       const { result, sources } = await verifyClaimWithSearch(claimText)
 
@@ -139,8 +140,9 @@ function App(): React.JSX.Element {
           if (message.toolCall) {
             for (const fc of message.toolCall.functionCalls) {
               if (fc.name === 'detect_claim') {
+                const claimTitle = fc.args.claim_title || 'Claim'
                 const claimText = fc.args.claim_text
-                handleClaimDetected(claimText)
+                handleClaimDetected(claimTitle, claimText)
 
                 // Respond to the tool call so the model knows it was handled
                 session.sendToolResponse({
@@ -262,39 +264,59 @@ function App(): React.JSX.Element {
         <div className="card-list-container">
           <div className="card-list-fade" />
           <div className="card-list" ref={cardListRef}>
-            {cards.map(card => (
-              <div
-                key={card.id}
-                className={`context-card ${card.isClaim ? 'claim-card' : ''} ${card.verdict ? `verdict-${card.verdict.toLowerCase()}` : ''}`}
-              >
-                <div className="card-header">
-                  <h3 className="card-title">{card.title}</h3>
-                  {card.isClaim && card.verdict && (
-                    <span className={`verdict-badge ${card.verdict.toLowerCase()}`}>
-                      {card.verdict}
-                    </span>
-                  )}
-                  {!card.isClaim && <span className="card-timestamp">{card.timestamp}</span>}
-                </div>
-                {card.content && <p className="card-content">{card.content}</p>}
-                {card.sources && card.sources.length > 0 && (
-                  <div className="card-sources">
-                    {card.sources.map((source, index) => (
-                      <a
-                        key={index}
-                        href={source.uri}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="source-box"
-                        title={source.uri}
-                      >
-                        {source.title || 'Source'}
-                      </a>
-                    ))}
+            {cards.map(card => {
+              const isExpanded = expandedCards.has(card.id)
+              const toggleExpand = () => {
+                setExpandedCards(prev => {
+                  const next = new Set(prev)
+                  if (next.has(card.id)) {
+                    next.delete(card.id)
+                  } else {
+                    next.add(card.id)
+                  }
+                  return next
+                })
+              }
+
+              return (
+                <div
+                  key={card.id}
+                  className={`context-card ${card.isClaim ? 'claim-card' : ''} ${card.verdict ? `verdict-${card.verdict.toLowerCase()}` : ''} ${isExpanded ? 'expanded' : ''}`}
+                  onClick={card.isClaim ? toggleExpand : undefined}
+                  style={{ cursor: card.isClaim ? 'pointer' : 'default' }}
+                >
+                  <div className="card-header">
+                    <h3 className="card-title">{card.title}</h3>
+                    {card.isClaim && card.verdict && (
+                      <span className={`verdict-badge ${card.verdict.toLowerCase()}`}>
+                        {card.verdict}
+                      </span>
+                    )}
+                    {!card.isClaim && <span className="card-timestamp">{card.timestamp}</span>}
                   </div>
-                )}
-              </div>
-            ))}
+                  {/* Show content for non-claim cards always, for claim cards only when expanded */}
+                  {(!card.isClaim || isExpanded) && card.content && (
+                    <p className="card-content">{card.content}</p>
+                  )}
+                  {(!card.isClaim || isExpanded) && card.sources && card.sources.length > 0 && (
+                    <div className="card-sources" onClick={e => e.stopPropagation()}>
+                      {card.sources.map((source, index) => (
+                        <a
+                          key={index}
+                          href={source.uri}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="source-box"
+                          title={source.uri}
+                        >
+                          {source.title || 'Source'}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
       </main>
