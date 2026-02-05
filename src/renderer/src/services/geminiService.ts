@@ -28,42 +28,36 @@ export async function verifyClaimWithSearch(
   claimText: string
 ): Promise<{ result: VerificationResult; sources: { title: string; uri: string }[] }> {
   try {
-    const model = 'gemini-3-flash-preview'
+    const model = 'gemini-2.5-flash-preview-09-2025'
 
     const prompt = `
       Fact check the following claim: "${claimText}".
       Use Google Search to find recent and relevant sources.
       Use trusted sources only.
       
-      Return a JSON object with:
-      - verdict: One of "True", "False", "Misleading", "Unverified", "Mixed".
-      - score: An integer from 1 (Totally False) to 5 (Totally True).
-      - explanation: A concise (max 2 sentences) explanation of the finding.
+      Return ONLY a JSON object (no markdown, no explanation outside the JSON) with exactly these fields:
+      {
+        "verdict": "True" | "False" | "Misleading" | "Unverified" | "Mixed",
+        "score": 1-5 (integer, 1=Totally False, 5=Totally True),
+        "explanation": "A concise (max 2 sentences) explanation"
+      }
     `
 
     const response = await getAI().models.generateContent({
       model: model,
       contents: prompt,
       config: {
-        tools: [{ googleSearch: {} }],
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            verdict: {
-              type: Type.STRING,
-              enum: ['True', 'False', 'Misleading', 'Unverified', 'Mixed']
-            },
-            score: { type: Type.INTEGER },
-            explanation: { type: Type.STRING }
-          },
-          required: ['verdict', 'score', 'explanation']
-        }
+        tools: [{ googleSearch: {} }]
       }
     })
 
-    const resultText = response.text || '{}'
-    const result = JSON.parse(resultText) as VerificationResult
+    const responseText = response.text || '{}'
+    
+    // Extract JSON from response (may be wrapped in markdown code blocks)
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/)
+    const jsonText = jsonMatch ? jsonMatch[0] : '{}'
+    
+    const result = JSON.parse(jsonText) as VerificationResult
 
     // Extract sources
     const sources =

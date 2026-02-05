@@ -5,12 +5,14 @@ import { connectToLiveSession, verifyClaimWithSearch } from './services/geminiSe
 import type { Blob as GeminiBlob, Session } from '@google/genai'
 
 interface Card {
-  id: number
+  id: string
   title: string
   content: string
   timestamp: string
-  verdict?: 'True' | 'False' | 'Misleading' | 'Unverified' | 'Mixed'
+  verdict?: 'Pending' | 'True' | 'False' | 'Misleading' | 'Unverified' | 'Mixed'
   isVerifying?: boolean
+  isClaim?: boolean
+  sources?: { title: string; uri: string }[]
 }
 
 function App(): React.JSX.Element {
@@ -39,7 +41,7 @@ function App(): React.JSX.Element {
     })
 
     setCards([{
-      id: 1,
+      id: crypto.randomUUID(),
       title: 'Session Started',
       content: `Mode: ${mode === 'screen' ? 'Screen Share' : 'Microphone'}`,
       timestamp: timeStr
@@ -56,12 +58,8 @@ function App(): React.JSX.Element {
     })
   }
 
-  // Generate unique IDs to prevent duplicate keys
-  const nextIdRef = useRef(Date.now())
-  const getNextId = (): number => {
-    nextIdRef.current += 1
-    return nextIdRef.current
-  }
+  // Generate unique IDs using UUID
+  const getNextId = (): string => crypto.randomUUID()
 
   const addCard = useCallback((title: string, content: string, extra?: Partial<Card>) => {
     setCards(prev => [...prev, {
@@ -73,7 +71,7 @@ function App(): React.JSX.Element {
     }])
   }, [])
 
-  const updateCard = useCallback((id: number, updates: Partial<Card>) => {
+  const updateCard = useCallback((id: string, updates: Partial<Card>) => {
     setCards(prev => prev.map(card =>
       card.id === id ? { ...card, ...updates } : card
     ))
@@ -83,34 +81,31 @@ function App(): React.JSX.Element {
   const handleClaimDetected = useCallback(async (claimText: string) => {
     const cardId = getNextId()
 
-    // Add claim card in verifying state
+    // Add claim card in pending state
     setCards(prev => [...prev, {
       id: cardId,
-      title: 'Claim Detected',
-      content: claimText,
+      title: claimText,
+      content: '',
       timestamp: getTimestamp(),
-      isVerifying: true
+      verdict: 'Pending',
+      isVerifying: true,
+      isClaim: true
     }])
 
     // Verify the claim
     try {
       const { result, sources } = await verifyClaimWithSearch(claimText)
 
-      const sourcesText = sources.length > 0
-        ? `\n\nSources: ${sources.map(s => s.title).join(', ')}`
-        : ''
-
       updateCard(cardId, {
-        title: `Claim: ${result.verdict}`,
-        content: `${claimText}\n\n${result.explanation}${sourcesText}`,
+        content: result.explanation,
         verdict: result.verdict,
-        isVerifying: false
+        isVerifying: false,
+        sources: sources
       })
     } catch (error) {
       console.error('Verification error:', error)
       updateCard(cardId, {
-        title: 'Claim: Unverified',
-        content: `${claimText}\n\nCould not verify this claim.`,
+        content: 'Could not verify this claim.',
         verdict: 'Unverified',
         isVerifying: false
       })
@@ -270,13 +265,34 @@ function App(): React.JSX.Element {
             {cards.map(card => (
               <div
                 key={card.id}
-                className={`context-card ${card.verdict ? `verdict-${card.verdict.toLowerCase()}` : ''} ${card.isVerifying ? 'verifying' : ''}`}
+                className={`context-card ${card.isClaim ? 'claim-card' : ''} ${card.verdict ? `verdict-${card.verdict.toLowerCase()}` : ''}`}
               >
                 <div className="card-header">
                   <h3 className="card-title">{card.title}</h3>
-                  <span className="card-timestamp">{card.timestamp}</span>
+                  {card.isClaim && card.verdict && (
+                    <span className={`verdict-badge ${card.verdict.toLowerCase()}`}>
+                      {card.verdict}
+                    </span>
+                  )}
+                  {!card.isClaim && <span className="card-timestamp">{card.timestamp}</span>}
                 </div>
-                <p className="card-content">{card.content}</p>
+                {card.content && <p className="card-content">{card.content}</p>}
+                {card.sources && card.sources.length > 0 && (
+                  <div className="card-sources">
+                    {card.sources.map((source, index) => (
+                      <a
+                        key={index}
+                        href={source.uri}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="source-box"
+                        title={source.uri}
+                      >
+                        {source.title || 'Source'}
+                      </a>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>
