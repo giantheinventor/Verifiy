@@ -277,6 +277,12 @@ body {
 .claim-card {
   background: var(--verdict-pending-bg);
   border: 2px solid var(--verdict-pending-border);
+  user-select: none;
+}
+
+.claim-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }
 
 .claim-card.verdict-true,

@@ -19,7 +19,7 @@ function getAI(): GoogleGenAI {
 // --- Fact Check Verification Service ---
 
 interface VerificationResult {
-  verdict: 'True' | 'False' | 'Misleading' | 'Unverified' | 'Mixed'
+  verdict: 'True' | 'False' | 'Unverified' | 'Mixed'
   score: number
   explanation: string
 }
@@ -37,7 +37,7 @@ export async function verifyClaimWithSearch(
       
       Return ONLY a JSON object (no markdown, no explanation outside the JSON) with exactly these fields:
       {
-        "verdict": "True" | "False" | "Misleading" | "Unverified" | "Mixed",
+        "verdict": "True" | "False"  | "Unverified" | "Mixed",
         "score": 1-5 (integer, 1=Totally False, 5=Totally True),
         "explanation": "A concise (max 2 sentences) explanation"
       }
@@ -59,11 +59,16 @@ export async function verifyClaimWithSearch(
     
     const result = JSON.parse(jsonText) as VerificationResult
 
+    // Debug: Log grounding metadata
+    console.log('Grounding metadata:', JSON.stringify(response.candidates?.[0]?.groundingMetadata, null, 2))
+
     // Extract sources
     const sources =
       response.candidates?.[0]?.groundingMetadata?.groundingChunks
         ?.map((chunk) => chunk.web)
         .filter((web): web is { title: string; uri: string } => !!web) || []
+
+    console.log('Extracted sources:', sources)
 
     return { result, sources }
   } catch (error) {
@@ -113,12 +118,16 @@ export const detectClaimTool: FunctionDeclaration = {
   parameters: {
     type: Type.OBJECT,
     properties: {
+      claim_title: {
+        type: Type.STRING,
+        description: 'The concise title that describes the claim.'
+      },
       claim_text: {
         type: Type.STRING,
-        description: 'The verbatim or summarized factual claim.'
+        description: 'The summarized factual claim.'
       }
     },
-    required: ['claim_text']
+    required: ['claim_text', 'claim_title']
   }
 }
 
@@ -135,17 +144,34 @@ export async function connectToLiveSession(callbacks: LiveSessionCallbacks) {
     throw new Error('API key is missing')
   }
 
+  const listeningAgentPrompt= `
+  You are a high-sensitivity, objective Fact-Checking Listener. 
+  Your sole purpose is to monitor audio for any assertion 
+  of fact—meaning any statement that describes a specific event, 
+  statistic, behavior, or condition in the physical world.
+  You must trigger the detect_claim tool for any statement that meets any of the following examples:
+  - Statistical/Numerical: "GDP grew by 5%," "Prices are up 40%."
+  - Behavioral/Event-based: "People in [Location] are [Action]," "The protest started at 5 PM."
+  - Historical/Causal: "This law caused the deficit to rise," "He said X in 2012."
+  - Comparative: "Company A is bigger than Company B."
+  - Definitional: "A [Category] is defined as [Definition]."
+  
+  Plausibility Independent: Detect the claim even if it sounds improbable, 
+  exaggerated, or inflammatory. 
+  Look for context: If the claim is connected to a previous claim or can be grouped together with other claims, 
+  call the tool with the combined claim.
+  Bias toward Over-Detection: If you are unsure whether a statement is a "claim" or just "talk," 
+  always call the tool. It is better to flag a false positive than to miss a verifiable assertion.
+  Ignore Sentiment: Do not let the tone (angry, joking, sarcastic) prevent you from extracting the underlying claim.
+  Do NOT transcribe normal conversation. Only extract claims.
+  Do NOT generate audio or text responses. Remain silent and only use the tool.
+`
+
   return await getAI().live.connect({
     model: LIVE_MODEL,
     config: {
       tools: [{ functionDeclarations: [detectClaimTool] }],
-      systemInstruction: `
-        You are an automated fact-checking listener. 
-        Your task is to listen to the audio stream and identify specific, verifiable factual claims.
-        When you hear a claim (e.g., "The GDP grew by 5% last year", "Use of plastic has doubled"), call the 'detect_claim' tool immediately.
-        Do NOT transcribe normal conversation. Only extract claims.
-        Do NOT generate audio or text responses. Remain silent and only use the tool.
-      `,
+      systemInstruction: listeningAgentPrompt,
       responseModalities: [Modality.AUDIO]
     },
     callbacks: {
