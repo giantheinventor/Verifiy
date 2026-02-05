@@ -5,16 +5,33 @@ import type { Blob as GeminiBlob } from '@google/genai'
 interface AudioCaptureProps {
     isListening: boolean
     onClick: () => void
-    mode: 'screen' | 'mic'
+    screenEnabled: boolean
+    micEnabled: boolean
     onAudioData?: (blob: GeminiBlob) => void
 }
 
-export function AudioCapture({ isListening, onClick, mode, onAudioData }: AudioCaptureProps): React.JSX.Element {
+export function AudioCapture({
+    isListening,
+    onClick,
+    screenEnabled,
+    micEnabled,
+    onAudioData
+}: AudioCaptureProps): React.JSX.Element {
     const [volume, setVolume] = useState(0)
-    const streamRef = useRef<MediaStream | null>(null)
+
+    // Refs for each stream
+    const micStreamRef = useRef<MediaStream | null>(null)
+    const screenStreamRef = useRef<MediaStream | null>(null)
+
+    // Refs for audio nodes
     const audioContextRef = useRef<AudioContext | null>(null)
     const analyserRef = useRef<AnalyserNode | null>(null)
     const processorRef = useRef<ScriptProcessorNode | null>(null)
+    const mergerRef = useRef<ChannelMergerNode | null>(null)
+    const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
+    const screenSourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
+    const micGainRef = useRef<GainNode | null>(null)
+    const screenGainRef = useRef<GainNode | null>(null)
     const animationFrameRef = useRef<number | null>(null)
 
     const updateVolume = (): void => {
@@ -23,7 +40,6 @@ export function AudioCapture({ isListening, onClick, mode, onAudioData }: AudioC
         const dataArray = new Uint8Array(analyserRef.current.fftSize)
         analyserRef.current.getByteTimeDomainData(dataArray)
 
-        // Calculate RMS for volume level
         let sum = 0
         for (let i = 0; i < dataArray.length; i++) {
             const normalized = (dataArray[i] - 128) / 128
@@ -32,7 +48,6 @@ export function AudioCapture({ isListening, onClick, mode, onAudioData }: AudioC
         const rms = Math.sqrt(sum / dataArray.length)
         const volumeLevel = Math.min(255, Math.round(rms * 255))
 
-        // Also check frequency data
         const freqArray = new Uint8Array(analyserRef.current.frequencyBinCount)
         analyserRef.current.getByteFrequencyData(freqArray)
         let maxFreq = 0
@@ -44,117 +59,218 @@ export function AudioCapture({ isListening, onClick, mode, onAudioData }: AudioC
         animationFrameRef.current = requestAnimationFrame(updateVolume)
     }
 
-    const startCapture = async (): Promise<void> => {
-        try {
-            let stream: MediaStream
+    // Initialize audio context and shared nodes
+    const initAudioContext = (): AudioContext => {
+        if (audioContextRef.current) return audioContextRef.current
 
-            if (mode === 'mic') {
-                // Microphone capture via getUserMedia
-                stream = await navigator.mediaDevices.getUserMedia({
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true
-                    }
-                })
-            } else {
-                // Screen audio capture via getDisplayMedia
-                stream = await navigator.mediaDevices.getDisplayMedia({
-                    video: { displaySurface: 'monitor' as const },
-                    audio: {
-                        echoCancellation: false,
-                        noiseSuppression: false,
-                        autoGainControl: false
-                    } as MediaTrackConstraints
-                })
+        const audioContext = new AudioContext({ sampleRate: 48000 })
+
+        // Create merger for combining sources
+        const merger = audioContext.createChannelMerger(2)
+        mergerRef.current = merger
+
+        // Create analyser
+        const analyser = audioContext.createAnalyser()
+        analyser.fftSize = 2048
+        analyser.smoothingTimeConstant = 0.3
+        analyserRef.current = analyser
+
+        // Create processor for sending to Gemini
+        const processor = audioContext.createScriptProcessor(4096, 1, 1)
+        processor.onaudioprocess = (event): void => {
+            if (onAudioData) {
+                const inputData = event.inputBuffer.getChannelData(0)
+                const downsampled = downsampleTo16k(inputData, audioContext.sampleRate)
+                const pcmBlob = createPcmBlob(downsampled)
+                onAudioData(pcmBlob)
             }
+        }
+        processorRef.current = processor
+
+        // Create silent output
+        const silentGain = audioContext.createGain()
+        silentGain.gain.value = 0
+
+        // Connect: merger -> analyser -> processor -> silentGain -> destination
+        merger.connect(analyser)
+        analyser.connect(processor)
+        processor.connect(silentGain)
+        silentGain.connect(audioContext.destination)
+
+        audioContextRef.current = audioContext
+        return audioContext
+    }
+
+    const startMicCapture = async (): Promise<void> => {
+        if (micStreamRef.current) return // Already capturing
+
+        try {
+            const audioContext = initAudioContext()
+            if (audioContext.state === 'suspended') await audioContext.resume()
+
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                }
+            })
 
             const audioTracks = stream.getAudioTracks()
-
             if (audioTracks.length === 0) {
                 stream.getTracks().forEach((t) => t.stop())
                 return
             }
 
-            audioTracks[0].addEventListener('ended', () => stopCapture())
+            audioTracks[0].addEventListener('ended', () => stopMicCapture())
 
-            streamRef.current = stream
+            micStreamRef.current = stream
 
-            const audioContext = new AudioContext({ sampleRate: 48000 })
-            if (audioContext.state === 'suspended') await audioContext.resume()
+            // Create source and gain for mic
+            const micSource = audioContext.createMediaStreamSource(stream)
+            const micGain = audioContext.createGain()
+            micGain.gain.value = 1.0
 
-            const sourceNode = audioContext.createMediaStreamSource(stream)
-            const analyser = audioContext.createAnalyser()
-            analyser.fftSize = 2048
-            analyser.smoothingTimeConstant = 0.3
+            micSource.connect(micGain)
+            micGain.connect(mergerRef.current!, 0, 0) // Connect to left channel
 
-            // Create ScriptProcessorNode for audio data capture (4096 samples buffer)
-            const processor = audioContext.createScriptProcessor(4096, 1, 1)
-            processor.onaudioprocess = (event): void => {
-                if (onAudioData) {
-                    const inputData = event.inputBuffer.getChannelData(0)
-                    const downsampled = downsampleTo16k(inputData, audioContext.sampleRate)
-                    const pcmBlob = createPcmBlob(downsampled)
-                    onAudioData(pcmBlob)
-                }
+            micSourceRef.current = micSource
+            micGainRef.current = micGain
+
+            if (!animationFrameRef.current) {
+                updateVolume()
             }
-
-            // Connect: source -> analyser -> processor -> silent gain -> destination
-            const gainNode = audioContext.createGain()
-            gainNode.gain.value = 0
-            sourceNode.connect(analyser)
-            analyser.connect(processor)
-            processor.connect(gainNode)
-            gainNode.connect(audioContext.destination)
-
-            audioContextRef.current = audioContext
-            analyserRef.current = analyser
-            processorRef.current = processor
-
-            updateVolume()
         } catch (e) {
-            console.error('Audio capture error:', e)
+            console.error('Mic capture error:', e)
         }
     }
 
-    const stopCapture = (): void => {
-        if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current)
-        if (processorRef.current) {
-            processorRef.current.disconnect()
-            processorRef.current = null
-        }
-        streamRef.current?.getTracks().forEach((t) => t.stop())
-        audioContextRef.current?.close()
+    const stopMicCapture = (): void => {
+        micSourceRef.current?.disconnect()
+        micGainRef.current?.disconnect()
+        micStreamRef.current?.getTracks().forEach((t) => t.stop())
 
-        streamRef.current = null
-        audioContextRef.current = null
+        micSourceRef.current = null
+        micGainRef.current = null
+        micStreamRef.current = null
+    }
+
+    const startScreenCapture = async (): Promise<void> => {
+        if (screenStreamRef.current) return // Already capturing
+
+        try {
+            const audioContext = initAudioContext()
+            if (audioContext.state === 'suspended') await audioContext.resume()
+
+            const stream = await navigator.mediaDevices.getDisplayMedia({
+                video: { displaySurface: 'monitor' as const },
+                audio: {
+                    echoCancellation: false,
+                    noiseSuppression: false,
+                    autoGainControl: false
+                } as MediaTrackConstraints
+            })
+
+            const audioTracks = stream.getAudioTracks()
+            if (audioTracks.length === 0) {
+                stream.getTracks().forEach((t) => t.stop())
+                return
+            }
+
+            audioTracks[0].addEventListener('ended', () => stopScreenCapture())
+
+            screenStreamRef.current = stream
+
+            // Create source and gain for screen
+            const screenSource = audioContext.createMediaStreamSource(stream)
+            const screenGain = audioContext.createGain()
+            screenGain.gain.value = 1.0
+
+            screenSource.connect(screenGain)
+            screenGain.connect(mergerRef.current!, 0, 1) // Connect to right channel
+
+            screenSourceRef.current = screenSource
+            screenGainRef.current = screenGain
+
+            if (!animationFrameRef.current) {
+                updateVolume()
+            }
+        } catch (e) {
+            console.error('Screen capture error:', e)
+        }
+    }
+
+    const stopScreenCapture = (): void => {
+        screenSourceRef.current?.disconnect()
+        screenGainRef.current?.disconnect()
+        screenStreamRef.current?.getTracks().forEach((t) => t.stop())
+
+        screenSourceRef.current = null
+        screenGainRef.current = null
+        screenStreamRef.current = null
+    }
+
+    const stopAllCapture = (): void => {
+        if (animationFrameRef.current) {
+            cancelAnimationFrame(animationFrameRef.current)
+            animationFrameRef.current = null
+        }
+
+        stopMicCapture()
+        stopScreenCapture()
+
+        processorRef.current?.disconnect()
+        processorRef.current = null
+        mergerRef.current?.disconnect()
+        mergerRef.current = null
         analyserRef.current = null
+        audioContextRef.current?.close()
+        audioContextRef.current = null
 
         setVolume(0)
     }
 
-    // Start/stop capture based on isListening prop and mode changes
+    // Handle mic enable/disable
     useEffect(() => {
-        if (isListening) {
-            // Stop any existing capture first (in case mode changed)
-            stopCapture()
-            startCapture()
+        if (isListening && micEnabled) {
+            startMicCapture()
         } else {
-            stopCapture()
+            stopMicCapture()
         }
-    }, [isListening, mode])
+    }, [isListening, micEnabled])
 
+    // Handle screen enable/disable
+    useEffect(() => {
+        if (isListening && screenEnabled) {
+            startScreenCapture()
+        } else {
+            stopScreenCapture()
+        }
+    }, [isListening, screenEnabled])
+
+    // Stop all when not listening
+    useEffect(() => {
+        if (!isListening) {
+            stopAllCapture()
+        }
+    }, [isListening])
+
+    // Cleanup on unmount
     useEffect(() => {
         return () => {
-            if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current)
-            audioContextRef.current?.close()
+            stopAllCapture()
         }
     }, [])
-
 
     const handleClick = (): void => {
         onClick()
     }
+
+    // Determine which icon to show
+    const showBothIcon = screenEnabled && micEnabled
+    const showMicIcon = micEnabled && !screenEnabled
+    const showScreenIcon = screenEnabled && !micEnabled
+    const showDefaultIcon = !screenEnabled && !micEnabled
 
     return (
         <div className="audio-capture-container" style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
@@ -163,23 +279,49 @@ export function AudioCapture({ isListening, onClick, mode, onAudioData }: AudioC
                 onClick={handleClick}
                 aria-label={isListening ? 'Stop listening' : 'Start listening'}
             >
-                {mode === 'mic' ? (
+                {showBothIcon ? (
+                    // Combined icon - modern layered design: screen behind, mic in front
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        {/* Screen (background, slightly transparent) */}
+                        <g opacity="0.5">
+                            <rect x="2" y="2" width="20" height="12" rx="2" />
+                            <line x1="9" y1="18" x2="15" y2="18" />
+                            <line x1="12" y1="14" x2="12" y2="18" />
+                        </g>
+                        {/* Mic (foreground, centered) */}
+                        <g transform="translate(0, 4)">
+                            <path d="M12 1a2.5 2.5 0 0 0-2.5 2.5v6a2.5 2.5 0 0 0 5 0v-6A2.5 2.5 0 0 0 12 1z" strokeWidth="1.8" />
+                            <path d="M17 8v1.5a5 5 0 0 1-10 0V8" strokeWidth="1.8" />
+                            <line x1="12" y1="14.5" x2="12" y2="17" strokeWidth="1.8" />
+                            <line x1="9" y1="17" x2="15" y2="17" strokeWidth="1.8" />
+                        </g>
+                    </svg>
+                ) : showMicIcon ? (
                     <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                         <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
                         <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
                         <line x1="12" y1="19" x2="12" y2="23" />
                         <line x1="8" y1="23" x2="16" y2="23" />
                     </svg>
-                ) : (
+                ) : showScreenIcon ? (
                     <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                         <rect x="2" y="3" width="20" height="14" rx="2" />
                         <line x1="8" y1="21" x2="16" y2="21" />
                         <line x1="12" y1="17" x2="12" y2="21" />
                     </svg>
-                )}
+                ) : showDefaultIcon ? (
+                    // Default - show waveform/audio icon when nothing selected
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <line x1="4" y1="12" x2="4" y2="12" strokeLinecap="round" />
+                        <line x1="8" y1="8" x2="8" y2="16" strokeLinecap="round" />
+                        <line x1="12" y1="5" x2="12" y2="19" strokeLinecap="round" />
+                        <line x1="16" y1="8" x2="16" y2="16" strokeLinecap="round" />
+                        <line x1="20" y1="12" x2="20" y2="12" strokeLinecap="round" />
+                    </svg>
+                ) : null}
             </button>
 
-            {/* Volume Meter for Testing */}
+            {/* Volume Meter */}
             <div style={{
                 display: 'flex',
                 flexDirection: 'column',
