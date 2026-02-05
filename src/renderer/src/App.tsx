@@ -17,7 +17,8 @@ interface Card {
 
 function App(): React.JSX.Element {
   const [isListening, setIsListening] = useState(false)
-  const [mode, setMode] = useState<'screen' | 'mic'>('screen')
+  const [screenEnabled, setScreenEnabled] = useState(true)
+  const [micEnabled, setMicEnabled] = useState(false)
   const [cards, setCards] = useState<Card[]>([])
   const [isConnecting, setIsConnecting] = useState(false)
   const cardListRef = useRef<HTMLDivElement>(null)
@@ -43,9 +44,10 @@ function App(): React.JSX.Element {
     setCards([{
       id: crypto.randomUUID(),
       title: 'Session Started',
-      content: `Mode: ${mode === 'screen' ? 'Screen Share' : 'Microphone'}`,
+      content: 'Ready to capture audio',
       timestamp: timeStr
     }])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const getTimestamp = (): string => {
@@ -58,7 +60,6 @@ function App(): React.JSX.Element {
     })
   }
 
-  // Generate unique IDs using UUID
   const getNextId = (): string => crypto.randomUUID()
 
   const addCard = useCallback((title: string, content: string, extra?: Partial<Card>) => {
@@ -81,7 +82,6 @@ function App(): React.JSX.Element {
   const handleClaimDetected = useCallback(async (claimText: string) => {
     const cardId = getNextId()
 
-    // Add claim card in pending state
     setCards(prev => [...prev, {
       id: cardId,
       title: claimText,
@@ -92,7 +92,6 @@ function App(): React.JSX.Element {
       isClaim: true
     }])
 
-    // Verify the claim
     try {
       const { result, sources } = await verifyClaimWithSearch(claimText)
 
@@ -135,14 +134,12 @@ function App(): React.JSX.Element {
           setIsConnecting(false)
         },
         onmessage: async (message: any) => {
-          // Handle Tool Calls (The detection of a claim)
           if (message.toolCall) {
             for (const fc of message.toolCall.functionCalls) {
               if (fc.name === 'detect_claim') {
                 const claimText = fc.args.claim_text
                 handleClaimDetected(claimText)
 
-                // Respond to the tool call so the model knows it was handled
                 session.sendToolResponse({
                   functionResponses: [{
                     id: fc.id,
@@ -184,12 +181,15 @@ function App(): React.JSX.Element {
     }
   }, [])
 
-  const handleMicClick = async () => {
+  const handleListenClick = async (): Promise<void> => {
     const newListening = !isListening
     setIsListening(newListening)
 
     if (newListening) {
-      addCard('Listening Started', 'Waiting for audio input...')
+      const sources: string[] = []
+      if (screenEnabled) sources.push('Screen')
+      if (micEnabled) sources.push('Microphone')
+      addCard('Listening Started', `Sources: ${sources.join(' + ') || 'None'}`)
       await connectLiveSession()
     } else {
       addCard('Listening Stopped', 'Session paused')
@@ -197,10 +197,20 @@ function App(): React.JSX.Element {
     }
   }
 
-  const toggleMode = () => {
-    const newMode = mode === 'screen' ? 'mic' : 'screen'
-    setMode(newMode)
-    addCard('Mode Changed', `Switched to ${newMode === 'screen' ? 'Screen Share' : 'Microphone'} mode`)
+  const toggleScreen = (): void => {
+    const newValue = !screenEnabled
+    setScreenEnabled(newValue)
+    if (isListening) {
+      addCard('Source Changed', `Screen audio ${newValue ? 'enabled' : 'disabled'}`)
+    }
+  }
+
+  const toggleMic = (): void => {
+    const newValue = !micEnabled
+    setMicEnabled(newValue)
+    if (isListening) {
+      addCard('Source Changed', `Microphone ${newValue ? 'enabled' : 'disabled'}`)
+    }
   }
 
   // Cleanup on unmount
@@ -223,25 +233,33 @@ function App(): React.JSX.Element {
         </button>
 
         <div className="header-controls">
-          <button className={`icon-button ${mode === 'screen' ? 'active' : ''}`} aria-label="Screen Share">
+          {/* Screen Audio Toggle */}
+          <button
+            className={`source-button ${screenEnabled ? 'active' : ''}`}
+            onClick={toggleScreen}
+            aria-label="Toggle screen audio"
+          >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <rect x="2" y="3" width="20" height="14" rx="2" />
               <line x1="8" y1="21" x2="16" y2="21" />
               <line x1="12" y1="17" x2="12" y2="21" />
             </svg>
+            <span>Screen</span>
           </button>
 
-          <button className="toggle-switch" onClick={toggleMode} aria-label="Toggle mode">
-            <span className={`toggle-slider ${mode === 'mic' ? 'active' : ''}`} />
-          </button>
-
-          <button className={`icon-button ${mode === 'mic' ? 'active' : ''}`} aria-label="Microphone">
+          {/* Microphone Toggle */}
+          <button
+            className={`source-button ${micEnabled ? 'active' : ''}`}
+            onClick={toggleMic}
+            aria-label="Toggle microphone"
+          >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
               <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
               <line x1="12" y1="19" x2="12" y2="23" />
               <line x1="8" y1="23" x2="16" y2="23" />
             </svg>
+            <span>Mic</span>
           </button>
         </div>
 
@@ -250,11 +268,12 @@ function App(): React.JSX.Element {
 
       {/* Main Content */}
       <main className="main-content">
-        {/* Microphone Button */}
+        {/* Audio Capture Button */}
         <AudioCapture
           isListening={isListening}
-          onClick={handleMicClick}
-          mode={mode}
+          onClick={handleListenClick}
+          screenEnabled={screenEnabled}
+          micEnabled={micEnabled}
           onAudioData={handleAudioData}
         />
 

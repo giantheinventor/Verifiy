@@ -83,6 +83,36 @@ body {
   color: var(--app-primary);
 }
 
+/* Source Toggle Buttons */
+.source-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #f0f0f0;
+  border: 1px solid #e0e0e0;
+  cursor: pointer;
+  padding: 8px 14px;
+  color: #888;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.source-button:hover {
+  background-color: #e8e8e8;
+}
+
+.source-button.active {
+  background: var(--app-primary);
+  border-color: var(--app-primary);
+  color: #fff;
+}
+
+.source-button.active:hover {
+  background: var(--app-primary-dark);
+}
+
 /* Toggle Switch */
 .toggle-switch {
   position: relative;
