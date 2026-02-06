@@ -26,7 +26,7 @@ export function AudioCapture({
     const audioContextRef = useRef<AudioContext | null>(null)
     const analyserRef = useRef<AnalyserNode | null>(null)
     const processorRef = useRef<ScriptProcessorNode | null>(null)
-    const mergerRef = useRef<ChannelMergerNode | null>(null)
+    const mixerRef = useRef<GainNode | null>(null)
     const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
     const screenSourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
     const micGainRef = useRef<GainNode | null>(null)
@@ -64,9 +64,10 @@ export function AudioCapture({
 
         const audioContext = new AudioContext({ sampleRate: 48000 })
 
-        // Create merger for combining sources
-        const merger = audioContext.createChannelMerger(2)
-        mergerRef.current = merger
+        // Create mono mixer (GainNode sums all inputs to mono)
+        const mixer = audioContext.createGain()
+        mixer.gain.value = 1.0
+        mixerRef.current = mixer
 
         // Create analyser
         const analyser = audioContext.createAnalyser()
@@ -79,9 +80,22 @@ export function AudioCapture({
         processor.onaudioprocess = (event): void => {
             if (onAudioData) {
                 const inputData = event.inputBuffer.getChannelData(0)
-                const downsampled = downsampleTo16k(inputData, audioContext.sampleRate)
-                const pcmBlob = createPcmBlob(downsampled)
-                onAudioData(pcmBlob)
+
+                // Check if buffer has any actual audio (not pure silence)
+                // Using very low threshold to only skip true digital silence
+                let hasAudio = false
+                for (let i = 0; i < inputData.length; i++) {
+                    if (Math.abs(inputData[i]) > 0.0005) {
+                        hasAudio = true
+                        break
+                    }
+                }
+
+                if (hasAudio) {
+                    const downsampled = downsampleTo16k(inputData, audioContext.sampleRate)
+                    const pcmBlob = createPcmBlob(downsampled)
+                    onAudioData(pcmBlob)
+                }
             }
         }
         processorRef.current = processor
@@ -90,8 +104,8 @@ export function AudioCapture({
         const silentGain = audioContext.createGain()
         silentGain.gain.value = 0
 
-        // Connect: merger -> analyser -> processor -> silentGain -> destination
-        merger.connect(analyser)
+        // Connect: mixer -> analyser -> processor -> silentGain -> destination
+        mixer.connect(analyser)
         analyser.connect(processor)
         processor.connect(silentGain)
         silentGain.connect(audioContext.destination)
@@ -131,7 +145,7 @@ export function AudioCapture({
             micGain.gain.value = 1.0
 
             micSource.connect(micGain)
-            micGain.connect(mergerRef.current!, 0, 0) // Connect to left channel
+            micGain.connect(mixerRef.current!) // Connect to mono mixer
 
             micSourceRef.current = micSource
             micGainRef.current = micGain
@@ -186,7 +200,7 @@ export function AudioCapture({
             screenGain.gain.value = 1.0
 
             screenSource.connect(screenGain)
-            screenGain.connect(mergerRef.current!, 0, 1) // Connect to right channel
+            screenGain.connect(mixerRef.current!) // Connect to mono mixer
 
             screenSourceRef.current = screenSource
             screenGainRef.current = screenGain
@@ -220,8 +234,8 @@ export function AudioCapture({
 
         processorRef.current?.disconnect()
         processorRef.current = null
-        mergerRef.current?.disconnect()
-        mergerRef.current = null
+        mixerRef.current?.disconnect()
+        mixerRef.current = null
         analyserRef.current = null
         audioContextRef.current?.close()
         audioContextRef.current = null
