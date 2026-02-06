@@ -23,7 +23,7 @@ A desktop application that listens to audio from your microphone and/or screen, 
 
 ### Prerequisites
 
-- Node.js 20+ 
+- Node.js 20+
 - npm
 - Google Gemini API key(s)
 
@@ -77,11 +77,11 @@ npm run build:mac
 
 ## Input Modes
 
-| Mode | Description |
-|------|-------------|
-| **Mic** | Captures audio from your microphone |
+| Mode       | Description                                    |
+| ---------- | ---------------------------------------------- |
+| **Mic**    | Captures audio from your microphone            |
 | **Screen** | Captures audio from screen share/desktop audio |
-| **Both** | Mixes mic and screen audio together |
+| **Both**   | Mixes mic and screen audio together            |
 
 ## License
 

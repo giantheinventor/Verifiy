@@ -35,7 +35,7 @@ export const sendClaimNotification = (title: string, body: string): void => {
   if (Notification.permission === 'granted') {
     new Notification(title, {
       body,
-      silent: false,
+      silent: false
       // Icon path relative to therenderer process or checking standard locations
       // Note: Electron handles app icon by default on macOS usually
     })

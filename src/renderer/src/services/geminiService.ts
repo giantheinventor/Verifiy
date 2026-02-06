@@ -27,8 +27,7 @@ let ai: GoogleGenAI | null = null
 
 function getAI(): GoogleGenAI {
   if (!ai) {
-    
-      ai = new GoogleGenAI({ apiKey: API_KEYS[currentKeyIndex] })
+    ai = new GoogleGenAI({ apiKey: API_KEYS[currentKeyIndex] })
   }
   return ai
 }
@@ -39,7 +38,7 @@ function rotateApiKey(): boolean {
     console.warn('No additional API keys available to rotate to')
     return false
   }
-  
+
   currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length
   console.log(`Rotating to API key ${currentKeyIndex + 1}/${API_KEYS.length}`)
   ai = new GoogleGenAI({ apiKey: API_KEYS[currentKeyIndex] })
@@ -49,9 +48,11 @@ function rotateApiKey(): boolean {
 // Check if error is a quota exceeded error (429)
 function isQuotaError(error: unknown): boolean {
   if (error instanceof Error) {
-    return error.message.includes('429') || 
-           error.message.toLowerCase().includes('quota') ||
-           error.message.toLowerCase().includes('rate limit')
+    return (
+      error.message.includes('429') ||
+      error.message.toLowerCase().includes('quota') ||
+      error.message.toLowerCase().includes('rate limit')
+    )
   }
   return false
 }
@@ -96,15 +97,18 @@ export async function verifyClaimWithSearch(
       })
 
       const responseText = response.text || '{}'
-      
+
       // Extract JSON from response (may be wrapped in markdown code blocks)
       const jsonMatch = responseText.match(/\{[\s\S]*\}/)
       const jsonText = jsonMatch ? jsonMatch[0] : '{}'
-      
+
       const result = JSON.parse(jsonText) as VerificationResult
 
       // Debug: Log grounding metadata
-      console.log('Grounding metadata:', JSON.stringify(response.candidates?.[0]?.groundingMetadata, null, 2))
+      console.log(
+        'Grounding metadata:',
+        JSON.stringify(response.candidates?.[0]?.groundingMetadata, null, 2)
+      )
 
       // Extract sources
       const sources =
@@ -118,13 +122,13 @@ export async function verifyClaimWithSearch(
     } catch (error) {
       lastError = error
       console.error(`Verification failed (attempt ${attempt + 1}/${maxRetries}):`, error)
-      
+
       // If quota error and we have more keys, rotate and retry
       if (isQuotaError(error) && rotateApiKey()) {
         console.log('Retrying with next API key...')
         continue
       }
-      
+
       // If not a quota error or no more keys, break out
       break
     }
@@ -200,7 +204,7 @@ export async function connectToLiveSession(callbacks: LiveSessionCallbacks) {
     throw new Error('No API keys configured. Please set VITE_GEMINI_API_KEY_0 in your .env file.')
   }
 
-  const listeningAgentPrompt= `
+  const listeningAgentPrompt = `
   You are a high-sensitivity, objective Fact-Checking Listener. 
   Your sole purpose is to monitor audio for any assertion 
   of fact—meaning any statement that describes a specific event, 

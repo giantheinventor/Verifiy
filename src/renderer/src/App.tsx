@@ -3,8 +3,11 @@ import './assets/main.css'
 import { AudioCapture } from './components/AudioCapture'
 import Icons from './components/Icons'
 import { Walkthrough } from './components/Walkthrough'
+import { ErrorOverlay } from './components/ErrorOverlay'
 import { connectToLiveSession, verifyClaimWithSearch } from './services/geminiService'
 import { requestNotificationPermission, sendClaimNotification } from './utils/notificationUtils'
+import { ErrorProvider, useError } from './context/ErrorContext'
+import { ErrorFactory } from './types/errorTypes'
 import type { Blob as GeminiBlob, Session } from '@google/genai'
 
 interface Card {
@@ -18,12 +21,15 @@ interface Card {
   sources?: { title: string; uri: string }[]
 }
 
-function App(): React.JSX.Element {
+function AppContent(): React.JSX.Element {
+  const { errors, addError, removeError } = useError()
   const [isListening, setIsListening] = useState(false)
   const [inputMode, setInputMode] = useState<'screen' | 'mic' | 'both' | 'none'>('screen')
   const [cards, setCards] = useState<Card[]>([])
-  const [isConnecting, setIsConnecting] = useState(false)
-  const [isDarkMode, setIsDarkMode] = useState(window.matchMedia('(prefers-color-scheme: dark)').matches)
+  const [_isConnecting, setIsConnecting] = useState(false)
+  const [isDarkMode, setIsDarkMode] = useState(
+    window.matchMedia('(prefers-color-scheme: dark)').matches
+  )
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set())
   const [showWalkthrough, setShowWalkthrough] = useState(false)
   const cardListRef = useRef<HTMLDivElement>(null)
@@ -45,7 +51,7 @@ function App(): React.JSX.Element {
 
   // Toggle dark mode (manual override)
   const toggleDarkMode = (): void => {
-    setIsDarkMode(prev => !prev)
+    setIsDarkMode((prev) => !prev)
   }
 
   // Auto-scroll to bottom when cards change
@@ -65,13 +71,14 @@ function App(): React.JSX.Element {
       hour12: true
     })
 
-    setCards([{
-      id: crypto.randomUUID(),
-      title: 'Session Started',
-      content: 'Ready to capture audio',
-      timestamp: timeStr
-    }])
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setCards([
+      {
+        id: crypto.randomUUID(),
+        title: 'Session Started',
+        content: 'Ready to capture audio',
+        timestamp: timeStr
+      }
+    ])
   }, [])
 
   const getTimestamp = (): string => {
@@ -87,69 +94,82 @@ function App(): React.JSX.Element {
   const getNextId = (): string => crypto.randomUUID()
 
   const addCard = useCallback((title: string, content: string, extra?: Partial<Card>) => {
-    setCards(prev => [...prev, {
-      id: getNextId(),
-      title,
-      content,
-      timestamp: getTimestamp(),
-      ...extra
-    }])
+    setCards((prev) => [
+      ...prev,
+      {
+        id: getNextId(),
+        title,
+        content,
+        timestamp: getTimestamp(),
+        ...extra
+      }
+    ])
   }, [])
 
   const updateCard = useCallback((id: string, updates: Partial<Card>) => {
-    setCards(prev => prev.map(card =>
-      card.id === id ? { ...card, ...updates } : card
-    ))
+    setCards((prev) => prev.map((card) => (card.id === id ? { ...card, ...updates } : card)))
   }, [])
 
   // Handle claim detection from Gemini
-  const handleClaimDetected = useCallback(async (claimTitle: string, claimText: string) => {
-    const cardId = getNextId()
+  const handleClaimDetected = useCallback(
+    async (claimTitle: string, claimText: string) => {
+      const cardId = getNextId()
 
-    setCards(prev => [...prev, {
-      id: cardId,
-      title: claimTitle,
-      content: '',
-      timestamp: getTimestamp(),
-      verdict: 'Pending',
-      isVerifying: true,
-      isClaim: true
-    }])
+      setCards((prev) => [
+        ...prev,
+        {
+          id: cardId,
+          title: claimTitle,
+          content: '',
+          timestamp: getTimestamp(),
+          verdict: 'Pending',
+          isVerifying: true,
+          isClaim: true
+        }
+      ])
 
-    // Verify the claim using claimText
-    try {
-      const { result, sources } = await verifyClaimWithSearch(claimText)
+      // Verify the claim using claimText
+      try {
+        const { result, sources } = await verifyClaimWithSearch(claimText)
 
-      updateCard(cardId, {
-        content: result.explanation,
-        verdict: result.verdict,
-        isVerifying: false,
-        sources: sources
-      })
+        updateCard(cardId, {
+          content: result.explanation,
+          verdict: result.verdict,
+          isVerifying: false,
+          sources: sources
+        })
 
-      // Send notification if claim is false/misleading and app is in background
-      if (
-        (result.verdict === 'False' || result.verdict === 'Misleading') &&
-        document.visibilityState === 'hidden'
-      ) {
-        sendClaimNotification(
-          'False Claim Detected',
-          `"${claimTitle}" was detected as ${result.verdict}.`
-        )
+        // Send notification if claim is false/misleading and app is in background
+        if (
+          (result.verdict === 'False' || result.verdict === 'Misleading') &&
+          document.visibilityState === 'hidden'
+        ) {
+          sendClaimNotification(
+            'False Claim Detected',
+            `"${claimTitle}" was detected as ${result.verdict}.`
+          )
+        }
+      } catch (error) {
+        console.error('Verification error:', error)
+        updateCard(cardId, {
+          content: 'Could not verify this claim.',
+          verdict: 'Unverified',
+          isVerifying: false
+        })
       }
-    } catch (error) {
-      console.error('Verification error:', error)
-      updateCard(cardId, {
-        content: 'Could not verify this claim.',
-        verdict: 'Unverified',
-        isVerifying: false
-      })
-    }
-  }, [updateCard])
+    },
+    [updateCard]
+  )
 
   // Connect to live session
   const connectLiveSession = useCallback(async () => {
     if (liveSessionRef.current) return
+
+    // Check network status before connecting
+    if (!navigator.onLine) {
+      addError(ErrorFactory.networkOffline())
+      return
+    }
 
     setIsConnecting(true)
     addCard('Connecting', 'Establishing connection to Gemini...')
@@ -158,6 +178,7 @@ function App(): React.JSX.Element {
       const session = await connectToLiveSession({
         onopen: () => {
           addCard('Connected', 'Live session established. Listening for claims...')
+          removeError('connection-failed')
           setIsConnecting(false)
         },
         onclose: () => {
@@ -166,10 +187,26 @@ function App(): React.JSX.Element {
         },
         onerror: (error) => {
           console.error('Live session error:', error)
-          addCard('Error', `Connection error: ${error}`)
+          const errorMessage = String(error)
+          // Check for quota/rate limit errors
+          if (errorMessage.includes('429') || errorMessage.toLowerCase().includes('quota')) {
+            addError(ErrorFactory.quotaExceeded(60000))
+          } else if (errorMessage.includes('401') || errorMessage.includes('403')) {
+            addError(ErrorFactory.apiKeyInvalid())
+          } else {
+            addError(ErrorFactory.connectionFailed(errorMessage))
+          }
           setIsConnecting(false)
         },
-        onmessage: async (message: any) => {
+        onmessage: async (message: {
+          toolCall?: {
+            functionCalls: Array<{
+              id: string
+              name: string
+              args: Record<string, string>
+            }>
+          }
+        }) => {
           if (message.toolCall) {
             for (const fc of message.toolCall.functionCalls) {
               if (fc.name === 'detect_claim') {
@@ -178,11 +215,13 @@ function App(): React.JSX.Element {
                 handleClaimDetected(claimTitle, claimText)
 
                 session.sendToolResponse({
-                  functionResponses: [{
-                    id: fc.id,
-                    name: fc.name,
-                    response: { result: 'ok' }
-                  }]
+                  functionResponses: [
+                    {
+                      id: fc.id,
+                      name: fc.name,
+                      response: { result: 'ok' }
+                    }
+                  ]
                 })
               }
             }
@@ -193,10 +232,18 @@ function App(): React.JSX.Element {
       liveSessionRef.current = session
     } catch (error) {
       console.error('Failed to connect:', error)
-      addCard('Error', 'Failed to connect to Gemini.')
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      // Check for quota/rate limit errors
+      if (errorMessage.includes('429') || errorMessage.toLowerCase().includes('quota')) {
+        addError(ErrorFactory.quotaExceeded(60000))
+      } else if (errorMessage.includes('401') || errorMessage.includes('403')) {
+        addError(ErrorFactory.apiKeyInvalid())
+      } else {
+        addError(ErrorFactory.connectionFailed(errorMessage))
+      }
       setIsConnecting(false)
     }
-  }, [addCard, handleClaimDetected])
+  }, [addCard, handleClaimDetected, addError, removeError])
 
   // Disconnect live session
   const disconnectLiveSession = useCallback(() => {
@@ -264,7 +311,12 @@ function App(): React.JSX.Element {
     <div className={`app-container ${isDarkMode ? 'dark-mode' : ''}`}>
       {/* Header */}
       <header className="header">
-        <button className="menu-button" onClick={toggleDarkMode} aria-label="Toggle dark mode" title={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}>
+        <button
+          className="menu-button"
+          onClick={toggleDarkMode}
+          aria-label="Toggle dark mode"
+          title={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
           <Icons.Menu size={24} />
         </button>
 
@@ -294,14 +346,17 @@ function App(): React.JSX.Element {
           onAudioData={handleAudioData}
         />
 
+        {/* Error Sentinel Overlay */}
+        <ErrorOverlay errors={errors} onDismiss={removeError} />
+
         {/* Card List with fade effect */}
         <div className="card-list-container">
           <div className="card-list-fade" />
           <div className="card-list" ref={cardListRef}>
-            {cards.map(card => {
+            {cards.map((card) => {
               const isExpanded = expandedCards.has(card.id)
-              const toggleExpand = () => {
-                setExpandedCards(prev => {
+              const toggleExpand = (): void => {
+                setExpandedCards((prev) => {
                   const next = new Set(prev)
                   if (next.has(card.id)) {
                     next.delete(card.id)
@@ -333,7 +388,7 @@ function App(): React.JSX.Element {
                     <p className="card-content">{card.content}</p>
                   )}
                   {(!card.isClaim || isExpanded) && card.sources && card.sources.length > 0 && (
-                    <div className="card-sources" onClick={e => e.stopPropagation()}>
+                    <div className="card-sources" onClick={(e) => e.stopPropagation()}>
                       {card.sources.map((source, index) => (
                         <a
                           key={index}
@@ -363,6 +418,15 @@ function App(): React.JSX.Element {
       {/* Walkthrough Overlay */}
       <Walkthrough isOpen={showWalkthrough} onClose={() => setShowWalkthrough(false)} />
     </div>
+  )
+}
+
+// Main App component wrapped with ErrorProvider
+function App(): React.JSX.Element {
+  return (
+    <ErrorProvider>
+      <AppContent />
+    </ErrorProvider>
   )
 }
 
