@@ -185,6 +185,19 @@ body {
   background: var(--accent-dark);
 }
 
+.auth-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 16px;
+  font-weight: bold;
+}
+
 /* Toggle Switch */
 .toggle-switch {
   position: relative;
@@ -580,7 +593,7 @@ body {
 
 .walkthrough-card-top {
   left: 50%;
-  top: 15%;
+  top: 10%;
   transform: translateX(-50%);
   animation: slideDownFromTop 0.3s ease;
 }
@@ -689,4 +702,188 @@ body {
 
 .walkthrough-btn-next:hover {
   background: var(--accent-dark);
+}
+
+/* Login Modal */
+.login-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  animation: fadeIn 0.2s ease;
+}
+
+.login-modal {
+  position: relative;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 32px;
+  width: 340px;
+  max-width: 90vw;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  animation: slideIn 0.3s ease;
+}
+
+.login-modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 24px;
+  cursor: pointer;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.login-modal-close:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.login-modal-title {
+  margin: 0 0 24px 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: center;
+}
+
+.login-modal-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.login-modal-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 20px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.login-modal-btn-oauth {
+  background: #4285f4;
+  border-color: #4285f4;
+  color: #fff;
+}
+
+.login-modal-btn-oauth:hover {
+  background: #3367d6;
+  border-color: #3367d6;
+}
+
+.login-modal-btn-api {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.login-modal-btn-api:hover {
+  background: var(--bg-tertiary, var(--border-color));
+}
+
+.login-modal-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.login-modal-divider::before,
+.login-modal-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-color);
+}
+
+.login-modal-api-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.login-modal-api-description {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.login-modal-api-description a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.login-modal-api-description a:hover {
+  text-decoration: underline;
+}
+
+.login-modal-input {
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 14px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.login-modal-input:focus {
+  border-color: var(--accent);
+}
+
+.login-modal-input::placeholder {
+  color: var(--text-secondary);
+}
+
+.login-modal-api-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.login-modal-btn-back {
+  flex: 1;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.login-modal-btn-back:hover {
+  background: var(--bg-tertiary, var(--border-color));
+}
+
+.login-modal-btn-submit {
+  flex: 1;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.login-modal-btn-submit:hover:not(:disabled) {
+  background: var(--accent-dark);
+  border-color: var(--accent-dark);
+}
+
+.login-modal-btn-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

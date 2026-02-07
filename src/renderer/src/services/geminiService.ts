@@ -1,65 +1,148 @@
 import { GoogleGenAI, Type, Modality } from '@google/genai'
 import type { FunctionDeclaration } from '@google/genai'
 
-// Load all available API keys from environment (VITE_GEMINI_API_KEY_0 through VITE_GEMINI_API_KEY_9)
-const API_KEYS: string[] = []
-for (let i = 0; i <= 9; i++) {
-  const key = import.meta.env[`VITE_GEMINI_API_KEY_${i}`]
-  if (key) {
-    API_KEYS.push(key)
-  }
-}
-// Fallback to the original key name if no numbered keys found
-if (API_KEYS.length === 0) {
-  const defaultKey = import.meta.env.VITE_GEMINI_API_KEY
-  if (defaultKey) {
-    API_KEYS.push(defaultKey)
-  }
-}
+// --- Authentication Management ---
 
-console.log(`Loaded ${API_KEYS.length} API key(s)`)
-
-// Track current key index
-let currentKeyIndex = 0
-
-// Lazy initialization
+// Module-level client instance
 let ai: GoogleGenAI | null = null
 
-function getAI(): GoogleGenAI {
-  if (!ai) {
-    
-      ai = new GoogleGenAI({ apiKey: API_KEYS[currentKeyIndex] })
-  }
-  return ai
+// Store credentials for reference
+let storedApiKey: string | null = null
+let storedOAuthToken: string | null = null
+let currentMode: 'apiKey' | 'oauth' | null = null
+
+// Get current auth mode
+export function getCurrentAuthMode(): 'apiKey' | 'oauth' | null {
+  if (!ai) return null
+  return currentMode
 }
 
-// Rotate to next API key and reinitialize client
-function rotateApiKey(): boolean {
-  if (API_KEYS.length <= 1) {
-    console.warn('No additional API keys available to rotate to')
+/**
+ * Get authorization headers for REST/WebSocket requests
+ * - OAuth: Returns { Authorization: 'Bearer <token>' }
+ * - API Key: Returns empty object (use query param instead)
+ */
+export function getAuthHeaders(): Record<string, string> {
+  if (currentMode === 'oauth' && storedOAuthToken) {
+    return { 'Authorization': `Bearer ${storedOAuthToken}` }
+  }
+  return {}
+}
+
+/**
+ * Get auth query parameter for API key mode
+ * - API Key: Returns '?key=<apiKey>'
+ * - OAuth: Returns empty string (use header instead)
+ */
+export function getAuthQueryParam(): string {
+  if (currentMode === 'apiKey' && storedApiKey) {
+    return `?key=${storedApiKey}`
+  }
+  return ''
+}
+
+/**
+ * Get the current access token (for WebSocket proxy)
+ */
+export function getAccessToken(): string | null {
+  if (currentMode === 'oauth') {
+    return storedOAuthToken
+  }
+  return null
+}
+
+/**
+ * Update the OAuth token (called when token is refreshed)
+ * Re-instantiates the client since GoogleGenAI headers are immutable after creation
+ */
+export function updateOAuthToken(newToken: string): void {
+  storedOAuthToken = newToken
+  
+  // Always re-instantiate client if OAuth mode is active
+  // This is required because the SDK's headers are immutable after creation
+  if (currentMode === 'oauth') {
+    ai = createOAuthClient(newToken)
+    console.log('OAuth client re-instantiated with new token')
+  } else {
+    // Store token for later use when switching to OAuth mode
+    console.log('OAuth token stored (API key mode active)')
+  }
+}
+
+/**
+ * Connect/reconnect to Gemini using API key
+ * @param apiKey The API key provided by the user
+ * @returns true if successful
+ */
+export function connectWithApiKey(apiKey: string): boolean {
+  if (!apiKey) {
+    console.error('No API key provided')
     return false
   }
   
-  currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length
-  console.log(`Rotating to API key ${currentKeyIndex + 1}/${API_KEYS.length}`)
-  ai = new GoogleGenAI({ apiKey: API_KEYS[currentKeyIndex] })
+  console.log('Connecting to Gemini with API key...')
+  ai = new GoogleGenAI({ apiKey: apiKey })
+  storedApiKey = apiKey
+  currentMode = 'apiKey'
+  console.log('Connected with API key')
   return true
 }
 
-// Check if error is a quota exceeded error (429)
-function isQuotaError(error: unknown): boolean {
-  if (error instanceof Error) {
-    return error.message.includes('429') || 
-           error.message.toLowerCase().includes('quota') ||
-           error.message.toLowerCase().includes('rate limit')
+/**
+ * Create a GoogleGenAI client configured for OAuth
+ * Uses requestOptions.customHeaders for Authorization header
+ */
+function createOAuthClient(accessToken: string): GoogleGenAI {
+  return new GoogleGenAI({
+    // SDK requires apiKey field, but we override auth with customHeaders
+    apiKey: 'OAUTH_CREDENTIAL',
+    httpOptions: {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    }
+  })
+}
+
+/**
+ * Connect/reconnect to Gemini using OAuth access token
+ * Uses Authorization: Bearer header instead of API key
+ * @param accessToken The OAuth access token
+ * @returns true if successful
+ */
+export function connectWithOAuth(accessToken: string): boolean {
+  if (!accessToken) {
+    console.error('No OAuth token provided')
+    return false
   }
-  return false
+  
+  console.log('Connecting to Gemini with OAuth token (using Authorization header)...')
+  ai = createOAuthClient(accessToken)
+  storedOAuthToken = accessToken
+  currentMode = 'oauth'
+  console.log('Connected with OAuth token')
+  return true
+}
+
+/**
+ * Check if the client is initialized
+ */
+export function isInitialized(): boolean {
+  return ai !== null
+}
+
+// --- Helper Functions ---
+
+// Get the current AI client (throws if not initialized)
+function getClient(): GoogleGenAI {
+  if (!ai) {
+    throw new Error('Gemini client not initialized. Call connectWithApiKey() or connectWithOAuth() first.')
+  }
+  return ai
 }
 
 // --- Fact Check Verification Service ---
 
 interface VerificationResult {
-  verdict: 'True' | 'False' | 'Unverified' | 'Mixed' | 'Misleading'
+  verdict: 'True' | 'False' | 'Unverified' | 'Mixed'
   score: number
   explanation: string
 }
@@ -67,7 +150,7 @@ interface VerificationResult {
 export async function verifyClaimWithSearch(
   claimText: string
 ): Promise<{ result: VerificationResult; sources: { title: string; uri: string }[] }> {
-  const maxRetries = API_KEYS.length
+  const maxRetries = 3
   let lastError: unknown = null
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -77,17 +160,18 @@ export async function verifyClaimWithSearch(
       const prompt = `
         Fact check the following claim: "${claimText}".
         Use Google Search to find recent and relevant sources.
-        Use trusted sources only.
+        Use trusted sources only. MAKE SURE to use only sources and do not infer things based on the claim.
         
         Return ONLY a JSON object (no markdown, no explanation outside the JSON) with exactly these fields:
         {
-          "verdict": "True" | "False"  | "Unverified" | "Mixed" | "Misleading",
+          "verdict": "True" | "False"  | "Unverified" | "Mixed",
           "score": 1-5 (integer, 1=Totally False, 5=Totally True),
           "explanation": "A concise (max 2 sentences) explanation"
         }
+        use the language of the claim
       `
 
-      const response = await getAI().models.generateContent({
+      const response = await getClient().models.generateContent({
         model: model,
         contents: prompt,
         config: {
@@ -118,14 +202,6 @@ export async function verifyClaimWithSearch(
     } catch (error) {
       lastError = error
       console.error(`Verification failed (attempt ${attempt + 1}/${maxRetries}):`, error)
-      
-      // If quota error and we have more keys, rotate and retry
-      if (isQuotaError(error) && rotateApiKey()) {
-        console.log('Retrying with next API key...')
-        continue
-      }
-      
-      // If not a quota error or no more keys, break out
       break
     }
   }
@@ -141,29 +217,6 @@ export async function verifyClaimWithSearch(
   }
 }
 
-// --- Chat Service ---
-
-export async function sendChatMessage(
-  history: { role: 'user' | 'model'; text: string }[],
-  message: string
-): Promise<string | undefined> {
-  try {
-    const chat = getAI().chats.create({
-      model: 'gemini-2.5-flash-preview-05-20',
-      history: history.map((h) => ({
-        role: h.role,
-        parts: [{ text: h.text }]
-      }))
-    })
-
-    const result = await chat.sendMessage({ message })
-    return result.text
-  } catch (error) {
-    console.error('Chat error:', error)
-    return 'Sorry, I encountered an error responding to that.'
-  }
-}
-
 // --- Live Connection Helper ---
 
 export const LIVE_MODEL = 'gemini-2.5-flash-native-audio-latest'
@@ -171,7 +224,7 @@ export const LIVE_MODEL = 'gemini-2.5-flash-native-audio-latest'
 export const detectClaimTool: FunctionDeclaration = {
   name: 'detect_claim',
   description:
-    'Call this function immediately when you detect a distinct, checkable factual claim in the audio stream. Use the same language as the audio stream.',
+    'Call this function immediately when you detect a distinct, checkable factual claim in the audio stream. MAKE SURE you use the same language as the audio stream for the claim title and claim text.',
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -191,13 +244,30 @@ export const detectClaimTool: FunctionDeclaration = {
 export interface LiveSessionCallbacks {
   onopen?: () => void
   onclose?: () => void
-  onerror?: (error: any) => void
-  onmessage?: (message: any) => void
+  onerror?: (error: unknown) => void
+  onmessage?: (message: unknown) => void
 }
 
+/**
+ * Connect to Gemini Live session for real-time audio fact-checking
+ * 
+ * IMPORTANT: In OAuth mode, browser WebSockets cannot send Authorization headers.
+ * The SDK's live.connect() will not work properly in OAuth mode from the renderer.
+ * For OAuth, use the WebSocket proxy via main process (window.api.wsConnect).
+ * 
+ * This function currently supports API Key mode directly. For OAuth mode,
+ * callers should use the WebSocket proxy API instead.
+ */
 export async function connectToLiveSession(callbacks: LiveSessionCallbacks) {
-  if (API_KEYS.length === 0) {
-    throw new Error('No API keys configured. Please set VITE_GEMINI_API_KEY_0 in your .env file.')
+  // Check if we're in OAuth mode - WebSocket won't work from renderer
+  if (currentMode === 'oauth') {
+    console.warn('OAuth mode detected: Browser WebSockets cannot send Authorization headers.')
+    console.warn('For OAuth Live sessions, use the WebSocket proxy via main process.')
+    console.warn('Consider calling window.api.wsConnect() instead.')
+    
+    // Attempt to use the SDK anyway with a fallback approach
+    // The SDK might support access_token query param as fallback
+    // If not, this will fail and the caller should use the proxy
   }
 
   const listeningAgentPrompt= `
@@ -223,7 +293,7 @@ export async function connectToLiveSession(callbacks: LiveSessionCallbacks) {
   Do NOT generate audio or text responses. Remain silent and only use the tool.
 `
 
-  return await getAI().live.connect({
+  return await getClient().live.connect({
     model: LIVE_MODEL,
     config: {
       tools: [{ functionDeclarations: [detectClaimTool] }],
@@ -249,4 +319,19 @@ export async function connectToLiveSession(callbacks: LiveSessionCallbacks) {
       }
     }
   })
+}
+
+/**
+ * Check if Live session requires WebSocket proxy (OAuth mode)
+ * Returns true if OAuth mode is active and caller should use window.api.wsConnect()
+ */
+export function requiresLiveProxy(): boolean {
+  return currentMode === 'oauth'
+}
+
+/**
+ * Get stored API key for WebSocket proxy
+ */
+export function getStoredApiKey(): string | null {
+  return storedApiKey
 }
