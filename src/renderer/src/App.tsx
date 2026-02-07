@@ -4,7 +4,8 @@ import { AudioCapture } from './components/AudioCapture'
 import Icons from './components/Icons'
 import { Walkthrough } from './components/Walkthrough'
 import { ErrorOverlay } from './components/ErrorOverlay'
-import { connectToLiveSession, verifyClaimWithSearch } from './services/geminiService'
+import { LoginModal } from './components/LoginModal'
+import { connectToLiveSession, verifyClaimWithSearch, connectWithApiKey } from './services/geminiService'
 import { requestNotificationPermission, sendClaimNotification } from './utils/notificationUtils'
 import { ErrorProvider, useError } from './context/ErrorContext'
 import { ErrorFactory } from './types/errorTypes'
@@ -28,14 +29,24 @@ function AppContent(): React.JSX.Element {
   const [isListening, setIsListening] = useState(false)
   const [inputMode, setInputMode] = useState<'screen' | 'mic' | 'both' | 'none'>('screen')
   const [cards, setCards] = useState<Card[]>([])
-  const [_isConnecting, setIsConnecting] = useState(false)
+  const [isConnecting, setIsConnecting] = useState(false)
   const [isDarkMode, setIsDarkMode] = useState(
     window.matchMedia('(prefers-color-scheme: dark)').matches
   )
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set())
   const [showWalkthrough, setShowWalkthrough] = useState(false)
+  const [showLoginModal, setShowLoginModal] = useState(false)
+  const [hasOAuthLogin, setHasOAuthLogin] = useState(false)
+  const [storedApiKey, setStoredApiKey] = useState<string | null>(null)
+  const [authMode, setAuthMode] = useState<'apiKey' | 'oauth' | null>(null)
   const cardListRef = useRef<HTMLDivElement>(null)
   const liveSessionRef = useRef<Session | null>(null)
+  const isOAuthSessionActiveRef = useRef(false)
+
+  // Derived state for checking available auth methods
+  const hasApiKey = !!storedApiKey
+  const canSwitchToOAuth = hasOAuthLogin && authMode === 'apiKey'
+  const canSwitchToApiKey = hasApiKey && authMode === 'oauth'
 
   // Sync with system theme preference
   useEffect(() => {
@@ -50,6 +61,74 @@ function AppContent(): React.JSX.Element {
   useEffect(() => {
     requestNotificationPermission()
   }, [])
+
+  // Listen for OAuth status from main process
+  useEffect(() => {
+    const removeListener = window.api.onAuthStatus((status) => {
+      console.log('Received auth status:', status)
+      if (status.success && (status.type === 'oauth' || status.type === 'refresh')) {
+        setHasOAuthLogin(true)
+        if (status.type === 'oauth') {
+          setAuthMode('oauth')
+          addCard('Login Successful', 'Connected to Google account. Using OAuth authentication.')
+        }
+      } else if (!status.success) {
+        setHasOAuthLogin(false)
+        if (authMode === 'oauth') {
+          setAuthMode(null)
+        }
+      }
+    })
+
+    return () => {
+      removeListener()
+    }
+  }, [authMode])
+
+  // Handle login button click (opens modal)
+  const handleLoginClick = (): void => {
+    setShowLoginModal(true)
+  }
+
+  // Handle OAuth login from modal
+  const handleOAuthLogin = (): void => {
+    console.log('Starting OAuth flow...')
+    setShowLoginModal(false)
+    window.api.startOAuth()
+  }
+
+  // Handle API key submission from modal
+  const handleApiKeySubmit = (apiKey: string): void => {
+    console.log('Connecting with API key...')
+    setShowLoginModal(false)
+    if (connectWithApiKey(apiKey)) {
+      setStoredApiKey(apiKey)
+      setAuthMode('apiKey')
+      addCard('Login Successful', 'Connected with API key.')
+    } else {
+      addCard('Login Failed', 'Could not connect with API key.')
+    }
+  }
+
+  // Toggle between API key and OAuth authentication
+  const toggleAuthMode = (): void => {
+    // Disconnect active session before switching
+    if (isListening) {
+      disconnectLiveSession()
+      setIsListening(false)
+      addCard('Session Stopped', 'Disconnected before switching auth mode.')
+    }
+
+    if (authMode === 'apiKey' && canSwitchToOAuth) {
+      setAuthMode('oauth')
+      addCard('Auth Mode Changed', 'Switched to OAuth authentication.')
+    } else if (authMode === 'oauth' && canSwitchToApiKey) {
+      if (connectWithApiKey(storedApiKey!)) {
+        setAuthMode('apiKey')
+        addCard('Auth Mode Changed', 'Switched to API Key authentication.')
+      }
+    }
+  }
 
   // Toggle dark mode (manual override)
   const toggleDarkMode = (): void => {
@@ -132,6 +211,9 @@ function AppContent(): React.JSX.Element {
         const newCards = [...prev, newCard]
         return newCards.slice(-MAX_CARDS)
       })
+      
+      // Verify the claim (only if NOT in OAuth mode - OAuth handles this in main process)
+      if (authMode === 'oauth') return
 
       // Verify the claim using claimText
       try {
@@ -146,8 +228,8 @@ function AppContent(): React.JSX.Element {
 
         // Send notification if claim is false/misleading and app is in background
         if (
-          (result.verdict === 'False' || result.verdict === 'Misleading') &&
-          document.visibilityState === 'hidden'
+          (result.verdict === 'False') &&
+          (document.visibilityState === 'hidden' || !document.hasFocus())
         ) {
           sendClaimNotification(
             'False Claim Detected',
@@ -162,11 +244,102 @@ function AppContent(): React.JSX.Element {
           isVerifying: false
         })
       }
-    },
-    [updateCard]
-  )
+    }, [updateCard, authMode])
 
-  // Connect to live session
+  // Listen for Gemini data from main process (OAuth mode only)
+  useEffect(() => {
+    if (authMode !== 'oauth') return
+
+    const removeListener = window.api.onGeminiData((data) => {
+      console.log('Received Gemini data:', data)
+
+      switch (data.type) {
+        case 'setup_complete':
+          addCard('Connected', 'Live session established. Listening for claims...')
+          setIsConnecting(false)
+          break
+        case 'tool_call':
+          // Claim detected - handle it
+          if (data.data?.name === 'detect_claim') {
+            const claimTitle = data.data.args?.claim_title || 'Claim'
+            const claimText = data.data.args?.claim_text
+            if (claimText) {
+              handleClaimDetected(claimTitle, claimText)
+            }
+          }
+          break
+        case 'closed':
+        case 'stopped':
+          if (isOAuthSessionActiveRef.current) {
+            addCard('Disconnected', 'Live session closed.')
+            isOAuthSessionActiveRef.current = false
+          }
+          break
+        case 'error':
+          addCard('Error', `Connection error: ${data.data?.message || 'Unknown error'}`)
+          setIsConnecting(false)
+          break
+      }
+    })
+
+    return () => {
+      removeListener()
+    }
+  }, [authMode, addCard, handleClaimDetected])
+
+  // Listen for fact check results from main process (OAuth mode only)
+  useEffect(() => {
+    if (authMode !== 'oauth') return
+
+    const removeListener = window.api.onFactCheckResult((result) => {
+      console.log('Received fact check result:', result)
+
+      // Find the pending claim card and update it
+      setCards(prev => {
+        console.log('Checking cards for match:', prev.map(c => ({ id: c.id, title: c.title, isVerifying: c.isVerifying })))
+        return prev.map(card => {
+          if (card.isClaim && card.title === result.claimTitle && card.isVerifying) {
+            console.log('Match found for card:', card.id)
+            if (result.error) {
+              return {
+                ...card,
+                content: 'Could not verify this claim.',
+                verdict: 'Unverified' as const,
+                isVerifying: false
+              }
+            }
+
+            const verdict = result.result?.verdict || 'Unverified'
+            return {
+              ...card,
+              content: result.result?.explanation || '',
+              verdict: verdict as Card['verdict'],
+              isVerifying: false,
+              sources: result.result?.sources || []
+            }
+          }
+          return card
+        })
+      })
+
+      // Send notification if claim is false/misleading and app is in background
+      if (
+        result.result?.verdict === 'False' &&
+        (document.visibilityState === 'hidden' || !document.hasFocus())
+      ) {
+        sendClaimNotification(
+          'False Claim Detected',
+          `"${result.claimTitle}" was detected as ${result.result.verdict}.`
+        )
+      }
+    })
+
+    return () => {
+      removeListener()
+    }
+  }, [authMode])
+
+  // Connect to live session (routes based on authMode)
   const connectLiveSession = useCallback(async () => {
     if (liveSessionRef.current) return
 
@@ -179,96 +352,122 @@ function AppContent(): React.JSX.Element {
     setIsConnecting(true)
     addCard('Connecting', 'Establishing connection to Gemini...')
 
-    try {
-      const session = await connectToLiveSession({
-        onopen: () => {
-          addCard('Connected', 'Live session established. Listening for claims...')
-          removeError('connection-failed')
-          setIsConnecting(false)
-        },
-        onclose: () => {
-          addCard('Disconnected', 'Live session closed.')
-          liveSessionRef.current = null
-        },
-        onerror: (error) => {
-          console.error('Live session error:', error)
-          const errorMessage = String(error)
-          // Check for quota/rate limit errors
-          if (errorMessage.includes('429') || errorMessage.toLowerCase().includes('quota')) {
-            addError(ErrorFactory.quotaExceeded(60000))
-          } else if (errorMessage.includes('401') || errorMessage.includes('403')) {
-            addError(ErrorFactory.apiKeyInvalid())
-          } else {
-            addError(ErrorFactory.connectionFailed(errorMessage))
-          }
-          setIsConnecting(false)
-        },
-        onmessage: async (message: {
-          toolCall?: {
-            functionCalls: Array<{
-              id: string
-              name: string
-              args: Record<string, string>
-            }>
-          }
-        }) => {
-          if (message.toolCall) {
-            for (const fc of message.toolCall.functionCalls) {
-              if (fc.name === 'detect_claim') {
-                const claimTitle = fc.args.claim_title || 'Claim'
-                const claimText = fc.args.claim_text
-                handleClaimDetected(claimTitle, claimText)
+    if (authMode === 'oauth') {
+      // OAuth mode: use main process IPC
+      isOAuthSessionActiveRef.current = true
+      window.api.startSession()
+      // Connection feedback comes via onGeminiData listener
+    } else {
+      // API Key mode: use renderer's geminiService directly
+      if (liveSessionRef.current) return
 
-                session.sendToolResponse({
-                  functionResponses: [
-                    {
-                      id: fc.id,
-                      name: fc.name,
-                      response: { result: 'ok' }
-                    }
-                  ]
-                })
+      try {
+        const session = await connectToLiveSession({
+          onopen: () => {
+            addCard('Connected', 'Live session established. Listening for claims...')
+            removeError('connection-failed')
+            setIsConnecting(false)
+          },
+          onclose: () => {
+            addCard('Disconnected', 'Live session closed.')
+            liveSessionRef.current = null
+          },
+          onerror: (error) => {
+            console.error('Live session error:', error)
+            const errorMessage = String(error)
+            // Check for quota/rate limit errors
+            if (errorMessage.includes('429') || errorMessage.toLowerCase().includes('quota')) {
+              addError(ErrorFactory.quotaExceeded(60000))
+            } else if (errorMessage.includes('401') || errorMessage.includes('403')) {
+              addError(ErrorFactory.apiKeyInvalid())
+            } else {
+              addError(ErrorFactory.connectionFailed(errorMessage))
+            }
+            setIsConnecting(false)
+          },
+          onmessage: async (message: unknown) => {
+            const msg = message as {
+              toolCall?: {
+                functionCalls: Array<{
+                  id: string
+                  name: string
+                  args: Record<string, string>
+                }>
+              }
+            }
+            if (msg.toolCall) {
+              for (const fc of msg.toolCall.functionCalls) {
+                if (fc.name === 'detect_claim') {
+                  const claimTitle = fc.args.claim_title || 'Claim'
+                  const claimText = fc.args.claim_text
+                  handleClaimDetected(claimTitle, claimText)
+
+                  session.sendToolResponse({
+                    functionResponses: [
+                      {
+                        id: fc.id,
+                        name: fc.name,
+                        response: { result: 'ok' }
+                      }
+                    ]
+                  })
+                }
               }
             }
           }
-        }
-      })
+        })
 
-      liveSessionRef.current = session
-    } catch (error) {
-      console.error('Failed to connect:', error)
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      // Check for quota/rate limit errors
-      if (errorMessage.includes('429') || errorMessage.toLowerCase().includes('quota')) {
-        addError(ErrorFactory.quotaExceeded(60000))
-      } else if (errorMessage.includes('401') || errorMessage.includes('403')) {
-        addError(ErrorFactory.apiKeyInvalid())
-      } else {
-        addError(ErrorFactory.connectionFailed(errorMessage))
+        liveSessionRef.current = session
+      } catch (error) {
+        console.error('Failed to connect:', error)
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        // Check for quota/rate limit errors
+        if (errorMessage.includes('429') || errorMessage.toLowerCase().includes('quota')) {
+          addError(ErrorFactory.quotaExceeded(60000))
+        } else if (errorMessage.includes('401') || errorMessage.includes('403')) {
+          addError(ErrorFactory.apiKeyInvalid())
+        } else {
+          addError(ErrorFactory.connectionFailed(errorMessage))
+        }
+        setIsConnecting(false)
       }
-      setIsConnecting(false)
     }
-  }, [addCard, handleClaimDetected, addError, removeError])
+  }, [authMode, addCard, handleClaimDetected, addError, removeError])
 
-  // Disconnect live session
+  // Disconnect live session (routes based on authMode)
   const disconnectLiveSession = useCallback(() => {
-    if (liveSessionRef.current) {
-      liveSessionRef.current.close()
-      liveSessionRef.current = null
+    if (authMode === 'oauth') {
+      // OAuth mode: use main process IPC
+      isOAuthSessionActiveRef.current = false
+      window.api.stopSession()
+    } else {
+      // API Key mode: close renderer session
+      if (liveSessionRef.current) {
+        liveSessionRef.current.close()
+        liveSessionRef.current = null
+      }
     }
-  }, [])
+  }, [authMode])
 
-  // Handle audio data from AudioCapture - send to Gemini
+  // Handle audio data from AudioCapture - routes based on authMode
   const handleAudioData = useCallback((blob: GeminiBlob) => {
-    if (liveSessionRef.current && blob.data && blob.mimeType) {
-      liveSessionRef.current.sendRealtimeInput({
-        media: {
-          data: blob.data,
-          mimeType: blob.mimeType
-        }
-      })
+    if (!blob.data || !blob.mimeType) return
+
+    if (authMode === 'oauth') {
+      // OAuth mode: send via main process IPC
+      window.api.sendAudioChunk(blob.data, blob.mimeType)
+    } else {
+      // API Key mode: send via renderer session
+      if (liveSessionRef.current) {
+        liveSessionRef.current.sendRealtimeInput({
+          media: {
+            data: blob.data,
+            mimeType: blob.mimeType
+          }
+        })
+      }
     }
-  }, [])
+  }, [authMode])
 
   const handleListenClick = async (): Promise<void> => {
     const newListening = !isListening
@@ -338,6 +537,29 @@ function AppContent(): React.JSX.Element {
             {inputMode === 'both' && <Icons.Merge size={20} />}
             {inputMode === 'none' && <Icons.NoInput size={20} />}
           </button>
+
+          {/* Auth Mode Toggle / Login */}
+          {!hasOAuthLogin ? (
+            <button
+              className="source-button"
+              onClick={handleLoginClick}
+              disabled={isConnecting}
+              aria-label="Login"
+              title="Choose login method"
+            >
+              {isConnecting ? '...' : 'Login'}
+            </button>
+          ) : (
+            <button
+              className={`source-button ${authMode === 'oauth' ? 'active' : ''}`}
+              onClick={toggleAuthMode}
+              disabled={!(canSwitchToOAuth || canSwitchToApiKey)}
+              aria-label="Toggle auth mode"
+              title={`Current: ${authMode === 'apiKey' ? 'API Key' : 'OAuth'}. Click to switch.`}
+            >
+              {authMode === 'apiKey' ? 'API' : 'OAuth'}
+            </button>
+          )}
         </div>
       </header>
 
@@ -422,6 +644,14 @@ function AppContent(): React.JSX.Element {
 
       {/* Walkthrough Overlay */}
       <Walkthrough isOpen={showWalkthrough} onClose={() => setShowWalkthrough(false)} />
+
+      {/* Login Modal */}
+      <LoginModal
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        onOAuthLogin={handleOAuthLogin}
+        onApiKeySubmit={handleApiKeySubmit}
+      />
     </div>
   )
 }
