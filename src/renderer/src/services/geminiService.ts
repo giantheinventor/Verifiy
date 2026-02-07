@@ -8,14 +8,6 @@ let ai: GoogleGenAI | null = null
 
 // Store credentials for reference
 let storedApiKey: string | null = null
-let storedOAuthToken: string | null = null
-let currentMode: 'apiKey' | 'oauth' | null = null
-
-// Get current auth mode
-export function getCurrentAuthMode(): 'apiKey' | 'oauth' | null {
-  if (!ai) return null
-  return currentMode
-}
 
 /**
  * Disconnect and clear the Gemini client
@@ -25,74 +17,17 @@ export function disconnect(): void {
   console.log('Disconnecting Gemini client...')
   ai = null
   storedApiKey = null
-  storedOAuthToken = null
-  currentMode = null
-}
-
-/**
- * Get authorization headers for REST/WebSocket requests
- * - OAuth: Returns { Authorization: 'Bearer <token>' }
- * - API Key: Returns empty object (use query param instead)
- */
-export function getAuthHeaders(): Record<string, string> {
-  if (currentMode === 'oauth' && storedOAuthToken) {
-    return { 'Authorization': `Bearer ${storedOAuthToken}` }
-  }
-  return {}
 }
 
 /**
  * Get auth query parameter for API key mode
- * - API Key: Returns '?key=<apiKey>'
- * - OAuth: Returns empty string (use header instead)
+ * Returns '?key=<apiKey>'
  */
 export function getAuthQueryParam(): string {
-  if (currentMode === 'apiKey' && storedApiKey) {
+  if (storedApiKey) {
     return `?key=${storedApiKey}`
   }
   return ''
-}
-
-/**
- * Get the current access token (for WebSocket proxy)
- */
-export function getAccessToken(): string | null {
-  if (currentMode === 'oauth') {
-    return storedOAuthToken
-  }
-  return null
-}
-
-/**
- * Update the OAuth token (called when token is refreshed)
- * Re-instantiates the client since GoogleGenAI headers are immutable after creation
- */
-export function updateOAuthToken(newToken: string): void {
-  storedOAuthToken = newToken
-  
-  // Always re-instantiate client if OAuth mode is active
-  // This is required because the SDK's headers are immutable after creation
-  if (currentMode === 'oauth') {
-    ai = createOAuthClient(newToken)
-    console.log('OAuth client re-instantiated with new token')
-  } else {
-    // Store token for later use when switching to OAuth mode
-    console.log('OAuth token stored (API key mode active)')
-  }
-}
-
-/**
- * Create a GoogleGenAI client configured for OAuth
- * Uses requestOptions.customHeaders for Authorization header
- */
-function createOAuthClient(accessToken: string): GoogleGenAI {
-  return new GoogleGenAI({
-    // SDK requires apiKey field, but we override auth with customHeaders
-    apiKey: 'OAUTH_CREDENTIAL',
-    httpOptions: {
-      headers: { 'Authorization': `Bearer ${accessToken}` }
-    }
-  })
 }
 
 /**
@@ -109,28 +44,7 @@ export function connectWithApiKey(apiKey: string): boolean {
   console.log('Connecting to Gemini with API key...')
   ai = new GoogleGenAI({ apiKey: apiKey })
   storedApiKey = apiKey
-  currentMode = 'apiKey'
   console.log('Connected with API key')
-  return true
-}
-
-/**
- * Connect/reconnect to Gemini using OAuth access token
- * Uses Authorization: Bearer header instead of API key
- * @param accessToken The OAuth access token
- * @returns true if successful
- */
-export function connectWithOAuth(accessToken: string): boolean {
-  if (!accessToken) {
-    console.error('No OAuth token provided')
-    return false
-  }
-  
-  console.log('Connecting to Gemini with OAuth token (using Authorization header)...')
-  ai = createOAuthClient(accessToken)
-  storedOAuthToken = accessToken
-  currentMode = 'oauth'
-  console.log('Connected with OAuth token')
   return true
 }
 
@@ -146,7 +60,7 @@ export function isInitialized(): boolean {
 // Get the current AI client (throws if not initialized)
 function getClient(): GoogleGenAI {
   if (!ai) {
-    throw new Error('Gemini client not initialized. Call connectWithApiKey() or connectWithOAuth() first.')
+    throw new Error('Gemini client not initialized. Call connectWithApiKey() first.')
   }
   return ai
 }
@@ -159,65 +73,125 @@ interface VerificationResult {
   explanation: string
 }
 
+// Helper to parse text-based response from prompt3
+function parseTextVerificationResult(text: string): VerificationResult | null {
+  try {
+    const verdictMatch = text.match(/VERDICT:\s*(True|False|Mixed|Unverified)/i)
+    const scoreMatch = text.match(/SCORE:\s*(\d)/i)
+    const explanationMatch = text.match(/EXPLANATION:\s*(.+)/i)
+
+    if (verdictMatch && scoreMatch && explanationMatch) {
+      return {
+        verdict: verdictMatch[1] as 'True' | 'False' | 'Unverified' | 'Mixed',
+        score: parseInt(scoreMatch[1], 10),
+        explanation: explanationMatch[1].trim()
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to parse text verification result:', e)
+  }
+  return null
+}
+
 export async function verifyClaimWithSearch(
   claimText: string
 ): Promise<{ result: VerificationResult; sources: { title: string; uri: string }[] }> {
-  const maxRetries = 3
   let lastError: unknown = null
+  
+  const model3 = 'gemini-3-flash-preview'
+  const model2 = 'gemini-2.5-flash-preview-09-2025'
+
+  const prompt3 = `
+    Fact check this claim: "${claimText}"
+
+    1. Search via Google to verify.
+    2. Respond using EXACTLY this text format (do not use markdown blocks or JSON):
+
+    VERDICT: [True/False/Mixed/Unverified]
+    SCORE: [1-5]
+    EXPLANATION: [Concise explanation here]
+
+    Important: You must use the Google Search tool.
+  `
+
+  const prompt2 = `
+    Fact check the following claim: "${claimText}".
+
+    STEP 1: You MUST use the Google Search tool to find verification. 
+    Even if you know the answer, search to get the URL source.
+    
+    STEP 2: Return ONLY a JSON object WITH EXACTLY THESE FIELDS:
+    {
+      "verdict": "True" | "False"  | "Unverified" | "Mixed",
+      "score": 1-5 (integer, 1=Totally False, 5=Totally True),
+      "explanation": "A concise (max 2 sentences) explanation",
+      "sources": [{"title": "Source Domain (e.g. wikipedia.org)", "url": "The real source URL (NOT a google redirect link)"}]
+    }
+    If your verdict is true, false or mixed you must have sources. 
+    IF YOU DONT HAVE SOURCES IN YOUR ANSWER SEARCH AGAIN FOR SOURCES.
+    Use the language of the claim for the content.
+  `
+
+  // Helper to extract sources
+  const extractSources = (response: any) => {
+     return response.candidates?.[0]?.groundingMetadata?.groundingChunks
+      ?.map((chunk: any) => chunk.web)
+      .filter((web: any): web is { title: string; uri: string } => !!web) || []
+  }
+
+  // Attempt 1: Model 3 (Text-based) - Single fail-fast attempt
+  try {
+    console.log(`Attempting verification with ${model3}...`)
+    const response = await getClient().models.generateContent({
+      model: model3,
+      contents: prompt3,
+      config: {
+        tools: [{ googleSearch: {} }]
+      }
+    })
+
+    const responseText = response.text || ''
+    const result = parseTextVerificationResult(responseText)
+
+    if (result) {
+        const sources = extractSources(response)
+        console.log('Verification successful with model3')
+        return { result, sources }
+    } else {
+        console.warn('Failed to parse model3 response, falling back...', responseText)
+    }
+  } catch (error) {
+    console.warn('Model3 verification failed, falling back:', error)
+    lastError = error
+  }
+
+  // Fallback: Model 2 (JSON-based) - Retry loop
+  const maxRetries = 3
+  console.log(`Falling back to ${model2} with ${maxRetries} retries...`)
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      const model = 'gemini-2.5-flash-preview-09-2025'
-
-      const prompt = `
-        Fact check the following claim: "${claimText}".
-        Use Google Search to find recent and relevant sources.
-        Use trusted sources only. MAKE SURE to use only sources and do not infer things based on the claim.
-        
-        Return ONLY a JSON object (no markdown, no explanation outside the JSON) with exactly these fields:
-        {
-          "verdict": "True" | "False"  | "Unverified" | "Mixed",
-          "score": 1-5 (integer, 1=Totally False, 5=Totally True),
-          "explanation": "A concise (max 2 sentences) explanation"
-        }
-        use the language of the claim
-      `
-
       const response = await getClient().models.generateContent({
-        model: model,
-        contents: prompt,
+        model: model2,
+        contents: prompt2,
         config: {
           tools: [{ googleSearch: {} }]
         }
       })
 
       const responseText = response.text || '{}'
-
       // Extract JSON from response (may be wrapped in markdown code blocks)
       const jsonMatch = responseText.match(/\{[\s\S]*\}/)
       const jsonText = jsonMatch ? jsonMatch[0] : '{}'
-
       const result = JSON.parse(jsonText) as VerificationResult
-
-      // Debug: Log grounding metadata
-      console.log(
-        'Grounding metadata:',
-        JSON.stringify(response.candidates?.[0]?.groundingMetadata, null, 2)
-      )
-
-      // Extract sources
-      const sources =
-        response.candidates?.[0]?.groundingMetadata?.groundingChunks
-          ?.map((chunk) => chunk.web)
-          .filter((web): web is { title: string; uri: string } => !!web) || []
-
-      console.log('Extracted sources:', sources)
-
+      
+      const sources = extractSources(response)
+      console.log(`Verification successful with model2 (attempt ${attempt + 1})`)
+      
       return { result, sources }
     } catch (error) {
       lastError = error
-      console.error(`Verification failed (attempt ${attempt + 1}/${maxRetries}):`, error)
-      break
+      console.error(`Model2 verification failed (attempt ${attempt + 1}/${maxRetries}):`, error)
     }
   }
 
@@ -263,28 +237,11 @@ export interface LiveSessionCallbacks {
   onmessage?: (message: unknown) => void
 }
 
+
 /**
  * Connect to Gemini Live session for real-time audio fact-checking
- * 
- * IMPORTANT: In OAuth mode, browser WebSockets cannot send Authorization headers.
- * The SDK's live.connect() will not work properly in OAuth mode from the renderer.
- * For OAuth, use the WebSocket proxy via main process (window.api.wsConnect).
- * 
- * This function currently supports API Key mode directly. For OAuth mode,
- * callers should use the WebSocket proxy API instead.
  */
 export async function connectToLiveSession(callbacks: LiveSessionCallbacks) {
-  // Check if we're in OAuth mode - WebSocket won't work from renderer
-  if (currentMode === 'oauth') {
-    console.warn('OAuth mode detected: Browser WebSockets cannot send Authorization headers.')
-    console.warn('For OAuth Live sessions, use the WebSocket proxy via main process.')
-    console.warn('Consider calling window.api.wsConnect() instead.')
-    
-    // Attempt to use the SDK anyway with a fallback approach
-    // The SDK might support access_token query param as fallback
-    // If not, this will fail and the caller should use the proxy
-  }
-
   const listeningAgentPrompt = `
   You are a high-sensitivity, objective Fact-Checking Listener. 
   Your sole purpose is to monitor audio for any assertion 
@@ -334,14 +291,6 @@ export async function connectToLiveSession(callbacks: LiveSessionCallbacks) {
       }
     }
   })
-}
-
-/**
- * Check if Live session requires WebSocket proxy (OAuth mode)
- * Returns true if OAuth mode is active and caller should use window.api.wsConnect()
- */
-export function requiresLiveProxy(): boolean {
-  return currentMode === 'oauth'
 }
 
 /**

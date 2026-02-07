@@ -16,17 +16,13 @@ import type { AddressInfo } from 'net' // Server import entfernt, da nicht genut
 import { randomBytes, createHash } from 'crypto'
 import { tokenManager } from './tokenManager'
 import { ListeningAgent, runFactCheck, closeAllAgents } from './geminiService'
-import dotenv from 'dotenv'
-
-// Load environment variables
-dotenv.config()
 
 // Initialize electron-audio-loopback before app.whenReady
 initMain()
 
 // --- OAuth Configuration (from .env) ---
-const CLIENT_ID = process.env.CLIENT_ID || ''
-const CLIENT_SECRET = process.env.CLIENT_SECRET || ''
+const CLIENT_ID = import.meta.env.MAIN_VITE_CLIENT_ID || ''
+const CLIENT_SECRET = import.meta.env.MAIN_VITE_CLIENT_SECRET || ''
 
 
 // Store main window reference for IPC
@@ -219,6 +215,8 @@ function createWindow(): void {
     width: windowWidth,
     height: windowHeight,
     resizable: false,
+    maximizable: false,
+    fullscreenable: false,
     show: false,
     autoHideMenuBar: true,
     icon: icon,

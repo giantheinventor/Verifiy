@@ -29,7 +29,7 @@ interface Card {
 function AppContent(): React.JSX.Element {
   const { addError, removeError } = useError()  // Keep for potential future use
   const [isListening, setIsListening] = useState(false)
-  const [inputMode, setInputMode] = useState<'screen' | 'mic' | 'both' | 'none'>('screen')
+  const [inputMode, setInputMode] = useState<'screen' | 'mic' | 'both' | 'none'>('none')
   const [cards, setCards] = useState<Card[]>([])
   const [_isConnecting, setIsConnecting] = useState(false)
   const [isDarkMode, setIsDarkMode] = useState(
@@ -64,6 +64,19 @@ function AppContent(): React.JSX.Element {
   // Request notification permission
   useEffect(() => {
     requestNotificationPermission()
+  }, [])
+
+  // Check if user has seen walkthrough
+  useEffect(() => {
+    // RESET FOR TESTING
+    //localStorage.removeItem('hasSeenWalkthrough')
+
+    const hasSeenWalkthrough = localStorage.getItem('hasSeenWalkthrough')
+
+    if (!hasSeenWalkthrough) {
+      setShowWalkthrough(true)
+      localStorage.setItem('hasSeenWalkthrough', 'true')
+    }
   }, [])
 
   // Listen for OAuth status from main process
@@ -375,6 +388,29 @@ function AppContent(): React.JSX.Element {
       return
     }
 
+    // Centralized error handler
+    const handleSessionError = (error: unknown): void => {
+      console.error('Live session error:', error)
+      const errorMessage = error instanceof Error ? error.message : String(error)
+
+      // Check for specific error types
+      if (errorMessage.includes('429') || errorMessage.toLowerCase().includes('quota')) {
+        addErrorCard('QUOTA', 'Quota exceeded. Please try again later.')
+      } else if (errorMessage.includes('401') || errorMessage.includes('403')) {
+        addErrorCard('API_KEY', 'Please add a valid API Key or Login with Google.')
+      } else {
+        addErrorCard('CONNECTION', 'Connection failed. Please check your keys and try again.')
+      }
+
+      // Cleanup session state
+      if (liveSessionRef.current) {
+        liveSessionRef.current.close()
+        liveSessionRef.current = null
+      }
+      setIsListening(false)
+      setIsConnecting(false)
+    }
+
     setIsConnecting(true)
     addCard('Connecting', 'Establishing connection to Gemini...')
 
@@ -398,23 +434,7 @@ function AppContent(): React.JSX.Element {
             liveSessionRef.current = null
           },
           onerror: (error) => {
-            console.error('Live session error:', error)
-            const errorMessage = String(error)
-            // Check for quota/rate limit errors
-            if (errorMessage.includes('429') || errorMessage.toLowerCase().includes('quota')) {
-              addErrorCard('QUOTA', 'Quota exceeded. Please try again later.')
-            } else if (errorMessage.includes('401') || errorMessage.includes('403')) {
-              addErrorCard('API_KEY', 'Please add a valid API Key or Login with Google.')
-            } else {
-              addErrorCard('CONNECTION', 'Connection failed. Please check your settings and try again.')
-            }
-            // Close the session and reset listening state
-            if (liveSessionRef.current) {
-              liveSessionRef.current.close()
-              liveSessionRef.current = null
-            }
-            setIsListening(false)
-            setIsConnecting(false)
+            handleSessionError(error)
           },
           onmessage: async (message: unknown) => {
             const msg = message as {
@@ -450,23 +470,7 @@ function AppContent(): React.JSX.Element {
 
         liveSessionRef.current = session
       } catch (error) {
-        console.error('Failed to connect:', error)
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        // Check for quota/rate limit errors
-        if (errorMessage.includes('429') || errorMessage.toLowerCase().includes('quota')) {
-          addErrorCard('QUOTA', 'Quota exceeded. Please try again later.')
-        } else if (errorMessage.includes('401') || errorMessage.includes('403')) {
-          addErrorCard('API_KEY', 'Please add a valid API Key or Login with Google.')
-        } else {
-          addErrorCard('CONNECTION', 'Connection failed. Please check your settings and try again.')
-        }
-        // Ensure session is closed and listening state is reset
-        if (liveSessionRef.current) {
-          liveSessionRef.current.close()
-          liveSessionRef.current = null
-        }
-        setIsListening(false)
-        setIsConnecting(false)
+        handleSessionError(error)
       }
     }
   }, [authMode, addCard, handleClaimDetected, addError, removeError])
@@ -507,6 +511,12 @@ function AppContent(): React.JSX.Element {
   }, [authMode])
 
   const handleListenClick = async (): Promise<void> => {
+    // Check if offline before starting
+    if (!isListening && !navigator.onLine) {
+      addErrorCard('NETWORK', 'You are offline. Please check your internet connection.')
+      return
+    }
+
     const newListening = !isListening
     setIsListening(newListening)
 
@@ -554,7 +564,7 @@ function AppContent(): React.JSX.Element {
       if (isListening) {
         disconnectLiveSession()
         setIsListening(false)
-        addCard('Connection Lost', 'Session closed due to network disconnection.')
+        addErrorCard('Connection Lost', 'Session closed due to network disconnection.')
       }
     }
 
