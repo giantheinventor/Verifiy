@@ -1,10 +1,14 @@
 import { safeStorage, app, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { writeFileSync, readFileSync, existsSync, unlinkSync } from 'fs'
+import dotenv from 'dotenv'
 
-// OAuth Configuration
-const OAUTH_CLIENT_ID = '88238801505-bbbhvonkehjgmivgqsctfqrg4pu5qg1g.apps.googleusercontent.com'
-const OAUTH_CLIENT_SECRET = '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'
+// Load environment variables
+dotenv.config()
+
+// OAuth Configuration (from .env, must match index.ts)
+const CLIENT_ID = process.env.CLIENT_ID || ''
+const CLIENT_SECRET = process.env.CLIENT_SECRET || ''
 
 // Token refresh buffer (refresh 5 minutes before expiry)
 const REFRESH_BUFFER_MS = 5 * 60 * 1000
@@ -115,8 +119,8 @@ export class TokenManager {
         body: new URLSearchParams({
           grant_type: 'refresh_token',
           refresh_token: this.refreshToken,
-          client_id: OAUTH_CLIENT_ID,
-          client_secret: OAUTH_CLIENT_SECRET
+          client_id: CLIENT_ID,
+          client_secret: CLIENT_SECRET
         })
       })
 

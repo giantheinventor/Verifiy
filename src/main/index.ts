@@ -16,15 +16,19 @@ import type { AddressInfo } from 'net' // Server import entfernt, da nicht genut
 import { randomBytes, createHash } from 'crypto'
 import { tokenManager } from './tokenManager'
 import { ListeningAgent, runFactCheck, closeAllAgents } from './geminiService'
+import dotenv from 'dotenv'
+
+// Load environment variables
+dotenv.config()
 
 // Initialize electron-audio-loopback before app.whenReady
 initMain()
 
-// --- OAuth Configuration ---
-const OAUTH_CLIENT_ID = '88238801505-bbbhvonkehjgmivgqsctfqrg4pu5qg1g.apps.googleusercontent.com'
-// HINWEIS: Hier Konstante eingefügt für Sauberkeit
-const OAUTH_CLIENT_SECRET = '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' 
-  
+// --- OAuth Configuration (from .env) ---
+const CLIENT_ID = process.env.CLIENT_ID || ''
+const CLIENT_SECRET = process.env.CLIENT_SECRET || ''
+
+
 // Store main window reference for IPC
 let mainWindow: BrowserWindow | null = null
 let oauthServer: any | null = null // Typ auf any oder Server ändern
@@ -32,6 +36,7 @@ let oauthServer: any | null = null // Typ auf any oder Server ändern
 // PKCE state
 let codeVerifier: string | null = null
 let oauthState: string | null = null
+let codeChallenge: string | null = null 
 
 // HINWEIS: `storedAccessToken` wurde ENTFERNT. Wir nutzen nur den tokenManager.
 
@@ -131,11 +136,11 @@ async function startOAuthFlow(): Promise<void> {
       const redirectUri = `http://127.0.0.1:${port}`
 
       codeVerifier = generateCodeVerifier()
-      const codeChallenge = generateCodeChallenge(codeVerifier)
+      codeChallenge = generateCodeChallenge(codeVerifier)
       oauthState = generateState()
 
       const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth')
-      authUrl.searchParams.set('client_id', OAUTH_CLIENT_ID)
+      authUrl.searchParams.set('client_id', CLIENT_ID)
       authUrl.searchParams.set('redirect_uri', redirectUri)
       authUrl.searchParams.set('response_type', 'code')
       // Scope update: Google Search & Gemini
@@ -159,38 +164,45 @@ interface TokenData {
   token_type: string
 }
 
+/**
+ * Exchanges the authorization code for access and refresh tokens.
+ * Uses PKCE (Proof Key for Code Exchange).
+ */
 async function exchangeCodeForToken(
   code: string,
   redirectUri: string,
   verifier: string
 ): Promise<TokenData | null> {
-  console.log('Exchanging auth code for token...')
+  console.log('Exchanging auth code for token...');
 
   try {
+    const params = new URLSearchParams();
+    params.append('client_id', CLIENT_ID);
+    params.append('client_secret', CLIENT_SECRET);
+    params.append('code', code);
+    params.append('grant_type', 'authorization_code');
+    params.append('redirect_uri', redirectUri);
+    params.append('code_verifier', verifier); // PKCE: proves we initiated the auth request
+
     const response = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        code: code,
-        client_id: OAUTH_CLIENT_ID,
-        client_secret: OAUTH_CLIENT_SECRET, // Konstante genutzt
-        redirect_uri: redirectUri,
-        grant_type: 'authorization_code',
-        code_verifier: verifier
-      })
-    })
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: params.toString()
+    });
 
     if (!response.ok) {
-      const errorText = await response.text()
-      console.error('Token exchange failed:', response.status, errorText)
-      return null
+      const errorText = await response.text();
+      console.error('Token exchange failed:', response.status, errorText);
+      return null;
     }
 
-    const data = await response.json() as TokenData
-    return data
+    const data = (await response.json()) as TokenData;
+    return data;
   } catch (error) {
-    console.error('Token exchange error:', error)
-    return null
+    console.error('Token exchange error:', error);
+    return null;
   }
 }
 

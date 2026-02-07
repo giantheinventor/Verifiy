@@ -27,7 +27,7 @@ function AppContent(): React.JSX.Element {
   const [isListening, setIsListening] = useState(false)
   const [inputMode, setInputMode] = useState<'screen' | 'mic' | 'both' | 'none'>('screen')
   const [cards, setCards] = useState<Card[]>([])
-  const [_isConnecting, setIsConnecting] = useState(false)
+  const [isConnecting, setIsConnecting] = useState(false)
   const [isDarkMode, setIsDarkMode] = useState(
     window.matchMedia('(prefers-color-scheme: dark)').matches
   )
@@ -377,17 +377,18 @@ function AppContent(): React.JSX.Element {
             }
             setIsConnecting(false)
           },
-          onmessage: async (message: {
-            toolCall?: {
-              functionCalls: Array<{
-                id: string
-                name: string
-                args: Record<string, string>
-              }>
+          onmessage: async (message: unknown) => {
+            const msg = message as {
+              toolCall?: {
+                functionCalls: Array<{
+                  id: string
+                  name: string
+                  args: Record<string, string>
+                }>
+              }
             }
-          }) => {
-            if (message.toolCall) {
-              for (const fc of message.toolCall.functionCalls) {
+            if (msg.toolCall) {
+              for (const fc of msg.toolCall.functionCalls) {
                 if (fc.name === 'detect_claim') {
                   const claimTitle = fc.args.claim_title || 'Claim'
                   const claimText = fc.args.claim_text
@@ -422,7 +423,8 @@ function AppContent(): React.JSX.Element {
         }
         setIsConnecting(false)
       }
-    }, [authMode, addCard, handleClaimDetected, addError, removeError])
+    }
+  }, [authMode, addCard, handleClaimDetected, addError, removeError])
 
   // Disconnect live session (routes based on authMode)
   const disconnectLiveSession = useCallback(() => {

@@ -6,7 +6,6 @@ import type { FunctionDeclaration } from '@google/genai'
 // Module-level client instance
 let ai: GoogleGenAI | null = null
 
-<<<<<<< HEAD
 // Store credentials for reference
 let storedApiKey: string | null = null
 let storedOAuthToken: string | null = null
@@ -16,13 +15,6 @@ let currentMode: 'apiKey' | 'oauth' | null = null
 export function getCurrentAuthMode(): 'apiKey' | 'oauth' | null {
   if (!ai) return null
   return currentMode
-=======
-function getAI(): GoogleGenAI {
-  if (!ai) {
-    ai = new GoogleGenAI({ apiKey: API_KEYS[currentKeyIndex] })
-  }
-  return ai
->>>>>>> bb5d48846babefd9cc7811a937b4418850d814dc
 }
 
 /**
@@ -78,26 +70,6 @@ export function updateOAuthToken(newToken: string): void {
 }
 
 /**
- * Connect/reconnect to Gemini using API key
- * @param apiKey The API key provided by the user
- * @returns true if successful
- */
-export function connectWithApiKey(apiKey: string): boolean {
-  if (!apiKey) {
-    console.error('No API key provided')
-    return false
-  }
-<<<<<<< HEAD
-  
-  console.log('Connecting to Gemini with API key...')
-  ai = new GoogleGenAI({ apiKey: apiKey })
-  storedApiKey = apiKey
-  currentMode = 'apiKey'
-  console.log('Connected with API key')
-  return true
-}
-
-/**
  * Create a GoogleGenAI client configured for OAuth
  * Uses requestOptions.customHeaders for Authorization header
  */
@@ -112,6 +84,25 @@ function createOAuthClient(accessToken: string): GoogleGenAI {
 }
 
 /**
+ * Connect/reconnect to Gemini using API key
+ * @param apiKey The API key provided by the user
+ * @returns true if successful
+ */
+export function connectWithApiKey(apiKey: string): boolean {
+  if (!apiKey) {
+    console.error('No API key provided')
+    return false
+  }
+  
+  console.log('Connecting to Gemini with API key...')
+  ai = new GoogleGenAI({ apiKey: apiKey })
+  storedApiKey = apiKey
+  currentMode = 'apiKey'
+  console.log('Connected with API key')
+  return true
+}
+
+/**
  * Connect/reconnect to Gemini using OAuth access token
  * Uses Authorization: Bearer header instead of API key
  * @param accessToken The OAuth access token
@@ -121,23 +112,6 @@ export function connectWithOAuth(accessToken: string): boolean {
   if (!accessToken) {
     console.error('No OAuth token provided')
     return false
-=======
-
-  currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length
-  console.log(`Rotating to API key ${currentKeyIndex + 1}/${API_KEYS.length}`)
-  ai = new GoogleGenAI({ apiKey: API_KEYS[currentKeyIndex] })
-  return true
-}
-
-// Check if error is a quota exceeded error (429)
-function isQuotaError(error: unknown): boolean {
-  if (error instanceof Error) {
-    return (
-      error.message.includes('429') ||
-      error.message.toLowerCase().includes('quota') ||
-      error.message.toLowerCase().includes('rate limit')
-    )
->>>>>>> bb5d48846babefd9cc7811a937b4418850d814dc
   }
   
   console.log('Connecting to Gemini with OAuth token (using Authorization header)...')
@@ -231,17 +205,6 @@ export async function verifyClaimWithSearch(
     } catch (error) {
       lastError = error
       console.error(`Verification failed (attempt ${attempt + 1}/${maxRetries}):`, error)
-<<<<<<< HEAD
-=======
-
-      // If quota error and we have more keys, rotate and retry
-      if (isQuotaError(error) && rotateApiKey()) {
-        console.log('Retrying with next API key...')
-        continue
-      }
-
-      // If not a quota error or no more keys, break out
->>>>>>> bb5d48846babefd9cc7811a937b4418850d814dc
       break
     }
   }
