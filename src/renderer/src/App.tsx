@@ -408,6 +408,12 @@ function AppContent(): React.JSX.Element {
             } else {
               addErrorCard('CONNECTION', 'Connection failed. Please check your settings and try again.')
             }
+            // Close the session and reset listening state
+            if (liveSessionRef.current) {
+              liveSessionRef.current.close()
+              liveSessionRef.current = null
+            }
+            setIsListening(false)
             setIsConnecting(false)
           },
           onmessage: async (message: unknown) => {
@@ -454,6 +460,12 @@ function AppContent(): React.JSX.Element {
         } else {
           addErrorCard('CONNECTION', 'Connection failed. Please check your settings and try again.')
         }
+        // Ensure session is closed and listening state is reset
+        if (liveSessionRef.current) {
+          liveSessionRef.current.close()
+          liveSessionRef.current = null
+        }
+        setIsListening(false)
         setIsConnecting(false)
       }
     }
@@ -535,6 +547,22 @@ function AppContent(): React.JSX.Element {
       disconnectLiveSession()
     }
   }, [disconnectLiveSession])
+
+  // Close session when network goes offline
+  useEffect(() => {
+    const handleOffline = (): void => {
+      if (isListening) {
+        disconnectLiveSession()
+        setIsListening(false)
+        addCard('Connection Lost', 'Session closed due to network disconnection.')
+      }
+    }
+
+    window.addEventListener('offline', handleOffline)
+    return () => {
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [isListening, disconnectLiveSession, addCard])
 
   return (
     <div className={`app-container ${isDarkMode ? 'dark-mode' : ''}`}>
