@@ -10,6 +10,8 @@ import { ErrorProvider, useError } from './context/ErrorContext'
 import { ErrorFactory } from './types/errorTypes'
 import type { Blob as GeminiBlob, Session } from '@google/genai'
 
+const MAX_CARDS = 100
+
 interface Card {
   id: string
   title: string
@@ -94,16 +96,18 @@ function AppContent(): React.JSX.Element {
   const getNextId = (): string => crypto.randomUUID()
 
   const addCard = useCallback((title: string, content: string, extra?: Partial<Card>) => {
-    setCards((prev) => [
-      ...prev,
-      {
+    setCards((prev) => {
+      const newCard = {
         id: getNextId(),
         title,
         content,
         timestamp: getTimestamp(),
         ...extra
       }
-    ])
+      const newCards = [...prev, newCard]
+      // Keep only the last MAX_CARDS
+      return newCards.slice(-MAX_CARDS)
+    })
   }, [])
 
   const updateCard = useCallback((id: string, updates: Partial<Card>) => {
@@ -115,18 +119,19 @@ function AppContent(): React.JSX.Element {
     async (claimTitle: string, claimText: string) => {
       const cardId = getNextId()
 
-      setCards((prev) => [
-        ...prev,
-        {
+      setCards((prev) => {
+        const newCard = {
           id: cardId,
           title: claimTitle,
           content: '',
           timestamp: getTimestamp(),
-          verdict: 'Pending',
+          verdict: 'Pending' as const,
           isVerifying: true,
           isClaim: true
         }
-      ])
+        const newCards = [...prev, newCard]
+        return newCards.slice(-MAX_CARDS)
+      })
 
       // Verify the claim using claimText
       try {
