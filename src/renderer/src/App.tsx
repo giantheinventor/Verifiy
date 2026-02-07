@@ -5,7 +5,9 @@ import Icons from './components/Icons'
 import { Walkthrough } from './components/Walkthrough'
 import { ErrorOverlay } from './components/ErrorOverlay'
 import { LoginModal } from './components/LoginModal'
-import { connectToLiveSession, verifyClaimWithSearch, connectWithApiKey } from './services/geminiService'
+import { Sidebar } from './components/Sidebar'
+import { ApiKeyModal } from './components/ApiKeyModal'
+import { connectToLiveSession, verifyClaimWithSearch, connectWithApiKey, disconnect } from './services/geminiService'
 import { requestNotificationPermission, sendClaimNotification } from './utils/notificationUtils'
 import { ErrorProvider, useError } from './context/ErrorContext'
 import { ErrorFactory } from './types/errorTypes'
@@ -27,13 +29,15 @@ function AppContent(): React.JSX.Element {
   const [isListening, setIsListening] = useState(false)
   const [inputMode, setInputMode] = useState<'screen' | 'mic' | 'both' | 'none'>('screen')
   const [cards, setCards] = useState<Card[]>([])
-  const [isConnecting, setIsConnecting] = useState(false)
+  const [_isConnecting, setIsConnecting] = useState(false)
   const [isDarkMode, setIsDarkMode] = useState(
     window.matchMedia('(prefers-color-scheme: dark)').matches
   )
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set())
   const [showWalkthrough, setShowWalkthrough] = useState(false)
   const [showLoginModal, setShowLoginModal] = useState(false)
+  const [showSidebar, setShowSidebar] = useState(false)
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false)
   const [hasOAuthLogin, setHasOAuthLogin] = useState(false)
   const [storedApiKey, setStoredApiKey] = useState<string | null>(null)
   const [authMode, setAuthMode] = useState<'apiKey' | 'oauth' | null>(null)
@@ -83,10 +87,7 @@ function AppContent(): React.JSX.Element {
     }
   }, [authMode])
 
-  // Handle login button click (opens modal)
-  const handleLoginClick = (): void => {
-    setShowLoginModal(true)
-  }
+
 
   // Handle OAuth login from modal
   const handleOAuthLogin = (): void => {
@@ -509,9 +510,9 @@ function AppContent(): React.JSX.Element {
       <header className="header">
         <button
           className="menu-button"
-          onClick={toggleDarkMode}
-          aria-label="Toggle dark mode"
-          title={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+          onClick={() => setShowSidebar(true)}
+          aria-label="Open settings"
+          title="Settings"
         >
           <Icons.Menu size={24} />
         </button>
@@ -529,29 +530,6 @@ function AppContent(): React.JSX.Element {
             {inputMode === 'both' && <Icons.Merge size={20} />}
             {inputMode === 'none' && <Icons.NoInput size={20} />}
           </button>
-
-          {/* Auth Mode Toggle / Login */}
-          {!hasOAuthLogin ? (
-            <button
-              className="source-button"
-              onClick={handleLoginClick}
-              disabled={isConnecting}
-              aria-label="Login"
-              title="Choose login method"
-            >
-              {isConnecting ? '...' : 'Login'}
-            </button>
-          ) : (
-            <button
-              className={`source-button ${authMode === 'oauth' ? 'active' : ''}`}
-              onClick={toggleAuthMode}
-              disabled={!(canSwitchToOAuth || canSwitchToApiKey)}
-              aria-label="Toggle auth mode"
-              title={`Current: ${authMode === 'apiKey' ? 'API Key' : 'OAuth'}. Click to switch.`}
-            >
-              {authMode === 'apiKey' ? 'API' : 'OAuth'}
-            </button>
-          )}
         </div>
       </header>
 
@@ -643,6 +621,52 @@ function AppContent(): React.JSX.Element {
         onClose={() => setShowLoginModal(false)}
         onOAuthLogin={handleOAuthLogin}
         onApiKeySubmit={handleApiKeySubmit}
+      />
+
+      {/* Sidebar */}
+      <Sidebar
+        isOpen={showSidebar}
+        onClose={() => setShowSidebar(false)}
+        isDarkMode={isDarkMode}
+        onToggleTheme={toggleDarkMode}
+        authMode={authMode}
+        hasOAuthLogin={hasOAuthLogin}
+        hasApiKey={hasApiKey}
+        onToggleAuthMode={toggleAuthMode}
+        onManageApiKey={() => {
+          setShowSidebar(false)
+          setShowApiKeyModal(true)
+        }}
+        onLogin={() => {
+          setShowSidebar(false)
+          handleOAuthLogin()
+        }}
+        onLogout={() => {
+          setShowSidebar(false)
+          // Clear OAuth login state (tokens are cleared server-side on next auth)
+          setHasOAuthLogin(false)
+          if (authMode === 'oauth') {
+            setAuthMode(hasApiKey ? 'apiKey' : null)
+          }
+        }}
+      />
+
+      {/* API Key Modal */}
+      <ApiKeyModal
+        isOpen={showApiKeyModal}
+        onClose={() => setShowApiKeyModal(false)}
+        currentKeyExists={hasApiKey}
+        onSave={(key) => {
+          handleApiKeySubmit(key)
+          setShowApiKeyModal(false)
+        }}
+        onDelete={() => {
+          disconnect()  // Clear SDK client
+          setStoredApiKey(null)
+          if (authMode === 'apiKey') {
+            setAuthMode(hasOAuthLogin ? 'oauth' : null)
+          }
+        }}
       />
     </div>
   )

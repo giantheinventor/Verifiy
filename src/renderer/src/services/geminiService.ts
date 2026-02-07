@@ -18,6 +18,18 @@ export function getCurrentAuthMode(): 'apiKey' | 'oauth' | null {
 }
 
 /**
+ * Disconnect and clear the Gemini client
+ * Call this when logging out or deleting API key
+ */
+export function disconnect(): void {
+  console.log('Disconnecting Gemini client...')
+  ai = null
+  storedApiKey = null
+  storedOAuthToken = null
+  currentMode = null
+}
+
+/**
  * Get authorization headers for REST/WebSocket requests
  * - OAuth: Returns { Authorization: 'Bearer <token>' }
  * - API Key: Returns empty object (use query param instead)
