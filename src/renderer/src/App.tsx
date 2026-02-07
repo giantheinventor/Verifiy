@@ -3,14 +3,12 @@ import './assets/main.css'
 import { AudioCapture } from './components/AudioCapture'
 import Icons from './components/Icons'
 import { Walkthrough } from './components/Walkthrough'
-import { ErrorOverlay } from './components/ErrorOverlay'
 import { LoginModal } from './components/LoginModal'
 import { Sidebar } from './components/Sidebar'
 import { ApiKeyModal } from './components/ApiKeyModal'
 import { connectToLiveSession, verifyClaimWithSearch, connectWithApiKey, disconnect } from './services/geminiService'
 import { requestNotificationPermission, sendClaimNotification } from './utils/notificationUtils'
 import { ErrorProvider, useError } from './context/ErrorContext'
-import { ErrorFactory } from './types/errorTypes'
 import type { Blob as GeminiBlob, Session } from '@google/genai'
 
 const MAX_CARDS = 100
@@ -23,11 +21,13 @@ interface Card {
   verdict?: 'Pending' | 'True' | 'False' | 'Misleading' | 'Unverified' | 'Mixed'
   isVerifying?: boolean
   isClaim?: boolean
+  isError?: boolean
+  errorType?: string
   sources?: { title: string; uri: string }[]
 }
 
 function AppContent(): React.JSX.Element {
-  const { errors, addError, removeError } = useError()
+  const { addError, removeError } = useError()  // Keep for potential future use
   const [isListening, setIsListening] = useState(false)
   const [inputMode, setInputMode] = useState<'screen' | 'mic' | 'both' | 'none'>('screen')
   const [cards, setCards] = useState<Card[]>([])
@@ -163,6 +163,18 @@ function AppContent(): React.JSX.Element {
     ])
   }, [])
 
+  // Format error type to human-readable label
+  const formatErrorType = (type: string): string => {
+    const labels: Record<string, string> = {
+      NETWORK: 'Network Error',
+      QUOTA: 'Rate Limited',
+      PERMISSION: 'Permission Required',
+      API_KEY: 'API Key Error',
+      CONNECTION: 'Connection Error'
+    }
+    return labels[type] ?? 'Error'
+  }
+
   const getTimestamp = (): string => {
     const now = new Date()
     return now.toLocaleTimeString('en-US', {
@@ -188,6 +200,19 @@ function AppContent(): React.JSX.Element {
       // Keep only the last MAX_CARDS
       return newCards.slice(-MAX_CARDS)
     })
+  }, [])
+
+  // Add an error as a card in the list
+  const addErrorCard = useCallback((type: string, message: string) => {
+    addCard(formatErrorType(type), message, {
+      isError: true,
+      errorType: type
+    })
+  }, [addCard])
+
+  // Remove a card by ID (used for dismissing error cards)
+  const removeCard = useCallback((id: string) => {
+    setCards((prev) => prev.filter((card) => card.id !== id))
   }, [])
 
   const updateCard = useCallback((id: string, updates: Partial<Card>) => {
@@ -346,7 +371,7 @@ function AppContent(): React.JSX.Element {
 
     // Check network status before connecting
     if (!navigator.onLine) {
-      addError(ErrorFactory.networkOffline())
+      addErrorCard('NETWORK', 'You are offline. Please check your internet connection.')
       return
     }
 
@@ -366,7 +391,6 @@ function AppContent(): React.JSX.Element {
         const session = await connectToLiveSession({
           onopen: () => {
             addCard('Connected', 'Live session established. Listening for claims...')
-            removeError('connection-failed')
             setIsConnecting(false)
           },
           onclose: () => {
@@ -378,11 +402,11 @@ function AppContent(): React.JSX.Element {
             const errorMessage = String(error)
             // Check for quota/rate limit errors
             if (errorMessage.includes('429') || errorMessage.toLowerCase().includes('quota')) {
-              addError(ErrorFactory.quotaExceeded(60000))
+              addErrorCard('QUOTA', 'Quota exceeded. Please try again later.')
             } else if (errorMessage.includes('401') || errorMessage.includes('403')) {
-              addError(ErrorFactory.apiKeyInvalid())
+              addErrorCard('API_KEY', 'Please add a valid API Key or Login with Google.')
             } else {
-              addError(ErrorFactory.connectionFailed(errorMessage))
+              addErrorCard('CONNECTION', 'Connection failed. Please check your settings and try again.')
             }
             // Close the session and reset listening state
             if (liveSessionRef.current) {
@@ -430,11 +454,11 @@ function AppContent(): React.JSX.Element {
         const errorMessage = error instanceof Error ? error.message : String(error)
         // Check for quota/rate limit errors
         if (errorMessage.includes('429') || errorMessage.toLowerCase().includes('quota')) {
-          addError(ErrorFactory.quotaExceeded(60000))
+          addErrorCard('QUOTA', 'Quota exceeded. Please try again later.')
         } else if (errorMessage.includes('401') || errorMessage.includes('403')) {
-          addError(ErrorFactory.apiKeyInvalid())
+          addErrorCard('API_KEY', 'Please add a valid API Key or Login with Google.')
         } else {
-          addError(ErrorFactory.connectionFailed(errorMessage))
+          addErrorCard('CONNECTION', 'Connection failed. Please check your settings and try again.')
         }
         // Ensure session is closed and listening state is reset
         if (liveSessionRef.current) {
@@ -579,8 +603,6 @@ function AppContent(): React.JSX.Element {
           onAudioData={handleAudioData}
         />
 
-        {/* Error Sentinel Overlay */}
-        <ErrorOverlay errors={errors} onDismiss={removeError} />
 
         {/* Card List with fade effect */}
         <div className="card-list-container">
@@ -603,7 +625,7 @@ function AppContent(): React.JSX.Element {
               return (
                 <div
                   key={card.id}
-                  className={`context-card ${card.isClaim ? 'claim-card' : ''} ${card.verdict ? `verdict-${card.verdict.toLowerCase()}` : ''} ${isExpanded ? 'expanded' : ''}`}
+                  className={`context-card ${card.isClaim ? 'claim-card' : ''} ${card.isError ? 'error-card' : ''} ${card.verdict ? `verdict-${card.verdict.toLowerCase()}` : ''} ${isExpanded ? 'expanded' : ''}`}
                   onClick={card.isClaim ? toggleExpand : undefined}
                   style={{ cursor: card.isClaim ? 'pointer' : 'default' }}
                 >
@@ -614,7 +636,19 @@ function AppContent(): React.JSX.Element {
                         {card.verdict}
                       </span>
                     )}
-                    {!card.isClaim && <span className="card-timestamp">{card.timestamp}</span>}
+                    {!card.isClaim && !card.isError && <span className="card-timestamp">{card.timestamp}</span>}
+                    {card.isError && (
+                      <button
+                        className="error-close-btn"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          removeCard(card.id)
+                        }}
+                        aria-label="Dismiss"
+                      >
+                        ×
+                      </button>
+                    )}
                   </div>
                   {/* Show content for non-claim cards always, for claim cards only when expanded */}
                   {(!card.isClaim || isExpanded) && card.content && (

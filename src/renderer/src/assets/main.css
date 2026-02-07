@@ -354,11 +354,12 @@ body {
 
 /* Context Card */
 .context-card {
+  display: flex;
+  flex-direction: column;
   background: var(--bg-secondary);
   border-radius: 12px;
   padding: 16px 20px;
   width: 100%;
-  box-shadow: 0 2px 8px var(--card-shadow);
   border: 1px solid var(--border-color);
   flex-shrink: 0;
   transition: all 0.3s ease;
@@ -391,6 +392,45 @@ body {
 .claim-card.verdict-unverified {
   background: var(--verdict-pending-bg);
   border-color: var(--verdict-pending-border);
+}
+
+/* Error Card - Deep Blue styling */
+.error-card {
+  border-left: 3px solid #5856D6;
+}
+
+.error-card .card-title {
+  color: #5856D6;
+}
+
+.dark-mode .error-card .card-title {
+  color: #8884FF;
+}
+
+/* Close button for error cards */
+.error-close-btn {
+  background: transparent;
+  border: none;
+  color: #5856D6;
+  font-size: 18px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.6;
+  transition: opacity 0.2s ease;
+}
+
+.error-close-btn:hover {
+  opacity: 1;
+}
+
+.dark-mode .error-close-btn {
+  color: #8884FF;
 }
 
 .card-header {
@@ -708,204 +748,6 @@ body {
 
 .walkthrough-btn-next:hover {
   background: var(--accent-dark);
-}
-
-/* ===================== */
-/* Error Overlay & Cards */
-/* ===================== */
-
-.error-overlay {
-  width: 75%;
-  max-width: 600px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-top: 24px;
-  margin-bottom: -12px;
-  z-index: 10;
-  pointer-events: auto;
-}
-
-.error-card {
-  display: flex;
-  align-items: flex-start;
-  gap: 16px;
-  padding: 16px 20px;
-  background: var(--bg-card);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-  pointer-events: auto;
-  animation: errorSlideInDown 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-  overflow: hidden;
-  position: relative;
-}
-
-/* Add a subtle top highlight for dark mode */
-.dark-theme .error-card::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
-}
-
-@keyframes errorSlideInDown {
-  from {
-    opacity: 0;
-    transform: translateY(-20px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.error-card-icon {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-.error-card-content {
-  flex: 1;
-  min-width: 0;
-  padding-top: 2px;
-}
-
-.error-card-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-
-.error-card-type {
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  opacity: 0.8;
-}
-
-.error-card-countdown {
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 10px;
-  border-radius: 20px;
-  background: rgba(255, 152, 0, 0.2);
-  color: #ffa726;
-  border: 1px solid rgba(255, 152, 0, 0.3);
-}
-
-.error-card-message {
-  font-size: 14px;
-  color: var(--text-secondary);
-  margin: 0;
-  line-height: 1.5;
-  font-weight: 500;
-}
-
-.error-card-action {
-  margin-top: 14px;
-  padding: 8px 18px;
-  font-size: 13px;
-  font-weight: 600;
-  border: none;
-  border-radius: 10px;
-  cursor: pointer;
-  background: var(--accent);
-  color: #fff;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-}
-
-.error-card-action:hover {
-  background: var(--accent-dark);
-  transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
-}
-
-.error-card-dismiss {
-  flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  border: none;
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-muted);
-  font-size: 20px;
-  cursor: pointer;
-  border-radius: 8px;
-  transition: all 0.2s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-top: -4px;
-  margin-right: -8px;
-}
-
-.error-card-dismiss:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-primary);
-}
-
-/* Error Type Variants with subtle colored accents */
-.error-card-network {
-  border-left: 4px solid #ff3b30;
-}
-
-.error-card-network .error-card-icon {
-  background: rgba(255, 59, 48, 0.15);
-  color: #ff453a;
-}
-
-.error-card-quota {
-  border-left: 4px solid #ff9800;
-}
-
-.error-card-quota .error-card-icon {
-  background: rgba(255, 152, 0, 0.15);
-  color: #ff9f0a;
-}
-
-.error-card-permission {
-  border-left: 4px solid #ffd60a;
-}
-
-.error-card-permission .error-card-icon {
-  background: rgba(255, 214, 10, 0.2);
-  color: #ffd60a;
-}
-
-.error-card-api_key {
-  border-left: 4px solid #bf5af2;
-}
-
-.error-card-api_key .error-card-icon {
-  background: rgba(191, 90, 242, 0.15);
-  color: #bf5af2;
-}
-
-.error-card-connection {
-  border-left: 4px solid #0a84ff;
-}
-
-.error-card-connection .error-card-icon {
-  background: rgba(10, 132, 255, 0.15);
-  color: #0a84ff;
 }
 
 
