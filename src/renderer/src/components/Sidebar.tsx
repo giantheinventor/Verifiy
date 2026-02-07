@@ -48,7 +48,7 @@ export function Sidebar({
 
                 <div className="sidebar-content">
                     {/* Theme Toggle - First */}
-                    <button className="sidebar-item" onClick={onToggleTheme}>
+                    <button className="sidebar-item sidebar-item-theme" onClick={onToggleTheme}>
                         <span className="sidebar-item-icon">
                             {isDarkMode ? <Icons.Moon size={20} /> : <Icons.Sun size={20} />}
                         </span>
@@ -64,7 +64,7 @@ export function Sidebar({
 
                     {/* Auth Mode Toggle - Second */}
                     <button
-                        className="sidebar-item"
+                        className="sidebar-item sidebar-item-auth"
                         onClick={onToggleAuthMode}
                         disabled={!canToggleAuth}
                         title={!canToggleAuth ? 'Need both OAuth and API key to toggle' : ''}
@@ -78,7 +78,7 @@ export function Sidebar({
                     </button>
 
                     {/* Manage API Key */}
-                    <button className="sidebar-item" onClick={onManageApiKey}>
+                    <button className="sidebar-item sidebar-item-api-key" onClick={onManageApiKey}>
                         <span className="sidebar-item-icon">
                             <Icons.Settings size={20} />
                         </span>
@@ -87,7 +87,7 @@ export function Sidebar({
 
                     {/* Login/Logout */}
                     <button
-                        className="sidebar-item"
+                        className="sidebar-item sidebar-item-login"
                         onClick={isLoggedIn ? onLogout : onLogin}
                     >
                         <span className="sidebar-item-icon">

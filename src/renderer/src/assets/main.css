@@ -596,7 +596,7 @@ body {
   position: fixed;
   inset: 0;
   background: transparent;
-  z-index: 1000;
+  z-index: 2000;
   animation: fadeIn 0.3s ease;
 }
 
@@ -626,8 +626,16 @@ body {
   padding: 20px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
   border: 1px solid var(--border-color);
-  z-index: 1001;
+  z-index: 2001;
   animation: slideIn 0.3s ease;
+  transition: all 0.3s ease;
+}
+
+.walkthrough-card.shifted {
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  top: auto !important;
+  bottom: 5% !important;
 }
 
 .walkthrough-card-bottom {
@@ -642,6 +650,13 @@ body {
   top: 10%;
   transform: translateX(-50%);
   animation: slideDownFromTop 0.3s ease;
+}
+
+.walkthrough-card-right {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  animation: slideIn 0.3s ease;
 }
 
 @keyframes slideIn {

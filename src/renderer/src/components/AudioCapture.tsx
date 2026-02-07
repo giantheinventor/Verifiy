@@ -275,7 +275,7 @@ export function AudioCapture({
       style={{ display: 'flex', alignItems: 'center', gap: '20px' }}
     >
       <button
-        className={`mic-button ${isListening ? 'listening' : ''}`}
+        className={`mic-button audio-capture-btn ${isListening ? 'listening' : ''}`}
         onClick={handleClick}
         aria-label={isListening ? 'Stop listening' : 'Start listening'}
       >

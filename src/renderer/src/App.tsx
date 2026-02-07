@@ -655,7 +655,13 @@ function AppContent(): React.JSX.Element {
       </button>
 
       {/* Walkthrough Overlay */}
-      <Walkthrough isOpen={showWalkthrough} onClose={() => setShowWalkthrough(false)} />
+      {showWalkthrough && (
+        <Walkthrough
+          isOpen={showWalkthrough}
+          onClose={() => setShowWalkthrough(false)}
+          onToggleSidebar={setShowSidebar}
+        />
+      )}
 
       {/* Login Modal */}
       <LoginModal
