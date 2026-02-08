@@ -81,7 +81,7 @@ export const ErrorFactory = {
     }),
 
   apiKeyInvalid: () =>
-    createError('API_KEY', 'Invalid or expired API key. Please check your .env configuration.', {
+    createError('API_KEY', 'Invalid or expired API key.', {
       id: 'api-key-invalid'
     })
 }

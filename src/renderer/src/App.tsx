@@ -22,6 +22,7 @@ interface Card {
   isVerifying?: boolean
   isClaim?: boolean
   isError?: boolean
+  isGetStarted?: boolean
   errorType?: string
   sources?: { title: string; uri: string }[]
 }
@@ -29,7 +30,7 @@ interface Card {
 function AppContent(): React.JSX.Element {
   const { addError, removeError } = useError()  // Keep for potential future use
   const [isListening, setIsListening] = useState(false)
-  const [inputMode, setInputMode] = useState<'screen' | 'mic' | 'both' | 'none'>('screen')
+  const [inputMode, setInputMode] = useState<'screen' | 'mic' | 'both' | 'none'>('none')
   const [cards, setCards] = useState<Card[]>([])
   const [_isConnecting, setIsConnecting] = useState(false)
   const [isDarkMode, setIsDarkMode] = useState(
@@ -66,6 +67,11 @@ function AppContent(): React.JSX.Element {
     requestNotificationPermission()
   }, [])
 
+  // Check if user has seen walkthrough (auto-launch removed)
+  // useEffect(() => {
+  //   // Auto-walkthrough removed
+  // }, [])
+
   // Listen for OAuth status from main process
   useEffect(() => {
     const removeListener = window.api.onAuthStatus((status) => {
@@ -74,7 +80,7 @@ function AppContent(): React.JSX.Element {
         setHasOAuthLogin(true)
         if (status.type === 'oauth') {
           setAuthMode('oauth')
-          addCard('Login Successful', 'Connected to Google account. Using OAuth authentication.')
+
         }
       } else if (!status.success) {
         setHasOAuthLogin(false)
@@ -105,7 +111,7 @@ function AppContent(): React.JSX.Element {
     if (connectWithApiKey(apiKey)) {
       setStoredApiKey(apiKey)
       setAuthMode('apiKey')
-      addCard('Login Successful', 'Connected with API key.')
+
     } else {
       addCard('Login Failed', 'Could not connect with API key.')
     }
@@ -117,16 +123,17 @@ function AppContent(): React.JSX.Element {
     if (isListening) {
       disconnectLiveSession()
       setIsListening(false)
-      addCard('Session Stopped', 'Disconnected before switching auth mode.')
+
+
     }
 
     if (authMode === 'apiKey' && canSwitchToOAuth) {
       setAuthMode('oauth')
-      addCard('Auth Mode Changed', 'Switched to OAuth authentication.')
+
     } else if (authMode === 'oauth' && canSwitchToApiKey) {
       if (connectWithApiKey(storedApiKey!)) {
         setAuthMode('apiKey')
-        addCard('Auth Mode Changed', 'Switched to API Key authentication.')
+
       }
     }
   }
@@ -156,9 +163,10 @@ function AppContent(): React.JSX.Element {
     setCards([
       {
         id: crypto.randomUUID(),
-        title: 'Session Started',
-        content: 'Ready to capture audio',
-        timestamp: timeStr
+        title: 'Click me to get started',
+        content: 'Learn how to use Verifiy.',
+        timestamp: timeStr,
+        isGetStarted: true
       }
     ])
   }, [])
@@ -281,7 +289,7 @@ function AppContent(): React.JSX.Element {
 
       switch (data.type) {
         case 'setup_complete':
-          addCard('Connected', 'Live session established. Listening for claims...')
+
           setIsConnecting(false)
           break
         case 'tool_call':
@@ -296,10 +304,7 @@ function AppContent(): React.JSX.Element {
           break
         case 'closed':
         case 'stopped':
-          if (isOAuthSessionActiveRef.current) {
-            addCard('Disconnected', 'Live session closed.')
-            isOAuthSessionActiveRef.current = false
-          }
+          isOAuthSessionActiveRef.current = false
           break
         case 'error':
           addCard('Error', `Connection error: ${data.data?.message || 'Unknown error'}`)
@@ -375,8 +380,31 @@ function AppContent(): React.JSX.Element {
       return
     }
 
+    // Centralized error handler
+    const handleSessionError = (error: unknown): void => {
+      console.error('Live session error:', error)
+      const errorMessage = error instanceof Error ? error.message : String(error)
+
+      // Check for specific error types
+      if (errorMessage.includes('429') || errorMessage.toLowerCase().includes('quota')) {
+        addErrorCard('QUOTA', 'Quota exceeded. Please try again later.')
+      } else if (errorMessage.includes('401') || errorMessage.includes('403')) {
+        addErrorCard('API_KEY', 'Please add a valid API Key or Login with Google.')
+      } else {
+        addErrorCard('CONNECTION', 'Connection failed. Please check your keys and try again.')
+      }
+
+      // Cleanup session state
+      if (liveSessionRef.current) {
+        liveSessionRef.current.close()
+        liveSessionRef.current = null
+      }
+      setIsListening(false)
+      setIsConnecting(false)
+    }
+
     setIsConnecting(true)
-    addCard('Connecting', 'Establishing connection to Gemini...')
+
 
     if (authMode === 'oauth') {
       // OAuth mode: use main process IPC
@@ -390,31 +418,13 @@ function AppContent(): React.JSX.Element {
       try {
         const session = await connectToLiveSession({
           onopen: () => {
-            addCard('Connected', 'Live session established. Listening for claims...')
             setIsConnecting(false)
           },
           onclose: () => {
-            addCard('Disconnected', 'Live session closed.')
             liveSessionRef.current = null
           },
           onerror: (error) => {
-            console.error('Live session error:', error)
-            const errorMessage = String(error)
-            // Check for quota/rate limit errors
-            if (errorMessage.includes('429') || errorMessage.toLowerCase().includes('quota')) {
-              addErrorCard('QUOTA', 'Quota exceeded. Please try again later.')
-            } else if (errorMessage.includes('401') || errorMessage.includes('403')) {
-              addErrorCard('API_KEY', 'Please add a valid API Key or Login with Google.')
-            } else {
-              addErrorCard('CONNECTION', 'Connection failed. Please check your settings and try again.')
-            }
-            // Close the session and reset listening state
-            if (liveSessionRef.current) {
-              liveSessionRef.current.close()
-              liveSessionRef.current = null
-            }
-            setIsListening(false)
-            setIsConnecting(false)
+            handleSessionError(error)
           },
           onmessage: async (message: unknown) => {
             const msg = message as {
@@ -450,23 +460,7 @@ function AppContent(): React.JSX.Element {
 
         liveSessionRef.current = session
       } catch (error) {
-        console.error('Failed to connect:', error)
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        // Check for quota/rate limit errors
-        if (errorMessage.includes('429') || errorMessage.toLowerCase().includes('quota')) {
-          addErrorCard('QUOTA', 'Quota exceeded. Please try again later.')
-        } else if (errorMessage.includes('401') || errorMessage.includes('403')) {
-          addErrorCard('API_KEY', 'Please add a valid API Key or Login with Google.')
-        } else {
-          addErrorCard('CONNECTION', 'Connection failed. Please check your settings and try again.')
-        }
-        // Ensure session is closed and listening state is reset
-        if (liveSessionRef.current) {
-          liveSessionRef.current.close()
-          liveSessionRef.current = null
-        }
-        setIsListening(false)
-        setIsConnecting(false)
+        handleSessionError(error)
       }
     }
   }, [authMode, addCard, handleClaimDetected, addError, removeError])
@@ -507,20 +501,18 @@ function AppContent(): React.JSX.Element {
   }, [authMode])
 
   const handleListenClick = async (): Promise<void> => {
+    // Check if offline before starting
+    if (!isListening && !navigator.onLine) {
+      addErrorCard('NETWORK', 'You are offline. Please check your internet connection.')
+      return
+    }
+
     const newListening = !isListening
     setIsListening(newListening)
 
     if (newListening) {
-      const modeLabels = {
-        screen: 'Screen',
-        mic: 'Microphone',
-        both: 'Screen + Microphone',
-        none: 'No input'
-      }
-      addCard('Listening Started', `Source: ${modeLabels[inputMode]}`)
       await connectLiveSession()
     } else {
-      addCard('Listening Stopped', 'Session paused')
       disconnectLiveSession()
     }
   }
@@ -530,14 +522,9 @@ function AppContent(): React.JSX.Element {
     const currentIndex = modes.indexOf(inputMode)
     const nextMode = modes[(currentIndex + 1) % modes.length]
     setInputMode(nextMode)
+
     if (isListening) {
-      const modeLabels = {
-        screen: 'Screen',
-        mic: 'Microphone',
-        both: 'Screen + Microphone',
-        none: 'No input'
-      }
-      addCard('Source Changed', `Now using: ${modeLabels[nextMode]}`)
+      // Input mode changed
     }
   }
 
@@ -554,7 +541,7 @@ function AppContent(): React.JSX.Element {
       if (isListening) {
         disconnectLiveSession()
         setIsListening(false)
-        addCard('Connection Lost', 'Session closed due to network disconnection.')
+        addErrorCard('Connection Lost', 'Session closed due to network disconnection.')
       }
     }
 
@@ -625,9 +612,12 @@ function AppContent(): React.JSX.Element {
               return (
                 <div
                   key={card.id}
-                  className={`context-card ${card.isClaim ? 'claim-card' : ''} ${card.isError ? 'error-card' : ''} ${card.verdict ? `verdict-${card.verdict.toLowerCase()}` : ''} ${isExpanded ? 'expanded' : ''}`}
-                  onClick={card.isClaim ? toggleExpand : undefined}
-                  style={{ cursor: card.isClaim ? 'pointer' : 'default' }}
+                  className={`context-card ${card.isClaim ? 'claim-card' : ''} ${card.isError ? 'error-card' : ''} ${card.isGetStarted ? 'get-started-card' : ''} ${card.verdict ? `verdict-${card.verdict.toLowerCase()}` : ''} ${isExpanded ? 'expanded' : ''}`}
+                  onClick={() => {
+                    if (card.isClaim) toggleExpand()
+                    if (card.isGetStarted) setShowWalkthrough(true)
+                  }}
+                  style={{ cursor: (card.isClaim || card.isGetStarted) ? 'pointer' : 'default' }}
                 >
                   <div className="card-header">
                     <h3 className="card-title">{card.title}</h3>
@@ -636,7 +626,7 @@ function AppContent(): React.JSX.Element {
                         {card.verdict}
                       </span>
                     )}
-                    {!card.isClaim && !card.isError && <span className="card-timestamp">{card.timestamp}</span>}
+                    {!card.isClaim && !card.isError && !card.isGetStarted && <span className="card-timestamp">{card.timestamp}</span>}
                     {card.isError && (
                       <button
                         className="error-close-btn"
