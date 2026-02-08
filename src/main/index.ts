@@ -11,8 +11,8 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { initMain } from 'electron-audio-loopback'
-import { createServer, IncomingMessage, ServerResponse } from 'http'
-import type { AddressInfo } from 'net' // Server import entfernt, da nicht genutzt
+import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'http'
+import type { AddressInfo } from 'net'
 import { randomBytes, createHash } from 'crypto'
 import { tokenManager } from './tokenManager'
 import { ListeningAgent, runFactCheck, closeAllAgents } from './geminiService'
@@ -31,7 +31,7 @@ const CLIENT_SECRET = process.env.CLIENT_SECRET || ''
 
 // Store main window reference for IPC
 let mainWindow: BrowserWindow | null = null
-let oauthServer: any | null = null // Typ auf any oder Server ändern
+let oauthServer: Server | null = null
 
 // PKCE state
 let codeVerifier: string | null = null

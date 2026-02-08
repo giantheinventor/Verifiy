@@ -1,14 +1,36 @@
-import { contextBridge, ipcRenderer, shell } from 'electron'
+import { contextBridge, ipcRenderer, shell, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+
+// Types for IPC callbacks
+interface AuthStatus {
+  success: boolean
+  type: string
+  error?: string
+}
+
+interface GeminiData {
+  type: 'setup_complete' | 'tool_call' | 'server_content' | 'error' | 'closed' | 'stopped'
+  data: unknown
+}
+
+interface FactCheckResult {
+  claimTitle: string
+  result?: {
+    verdict: 'True' | 'False' | 'Unverified' | 'Mixed'
+    explanation: string
+    score: number
+    sources?: { title: string; uri: string }[]
+  }
+  error?: string
+}
 
 const api = {
   // --- OAuth & Auth ---
-  startOAuth: () => ipcRenderer.send('start-oauth'),
-  
-  onAuthStatus: (callback) => {
-    const subscription = (_event, status) => callback(status)
+  startOAuth: (): void => ipcRenderer.send('start-oauth'),
+
+  onAuthStatus: (callback: (status: AuthStatus) => void): (() => void) => {
+    const subscription = (_event: IpcRendererEvent, status: AuthStatus): void => callback(status)
     ipcRenderer.on('auth-status', subscription)
-    // Return a function to remove only THIS specific listener
     return () => ipcRenderer.removeListener('auth-status', subscription)
   },
 
@@ -23,21 +45,33 @@ const api = {
   },
 
   // --- Gemini Feedback ---
-  onGeminiData: (callback) => {
-    const subscription = (_event, data) => callback(data)
+  onGeminiData: (callback: (data: GeminiData) => void): (() => void) => {
+    const subscription = (_event: IpcRendererEvent, data: GeminiData): void => callback(data)
     ipcRenderer.on('gemini-data', subscription)
     return () => ipcRenderer.removeListener('gemini-data', subscription)
   },
 
   // --- Fact Checking Results ---
-  onFactCheckResult: (callback) => {
-    const subscription = (_event, result) => callback(result)
+  onFactCheckResult: (callback: (result: FactCheckResult) => void): (() => void) => {
+    const subscription = (_event: IpcRendererEvent, result: FactCheckResult): void =>
+      callback(result)
     ipcRenderer.on('fact-check-result', subscription)
     return () => ipcRenderer.removeListener('fact-check-result', subscription)
   },
 
-  // Utils
-  openExternal: (url: string) => shell.openExternal(url)
+  // Utils - with URL validation to prevent protocol injection
+  openExternal: (url: string) => {
+    try {
+      const parsed = new URL(url)
+      if (['http:', 'https:'].includes(parsed.protocol)) {
+        shell.openExternal(url)
+      } else {
+        console.warn(`Blocked openExternal for unsafe protocol: ${parsed.protocol}`)
+      }
+    } catch {
+      console.error('Invalid URL passed to openExternal:', url)
+    }
+  }
 }
 
 // Expose the APIs
@@ -49,8 +83,8 @@ if (process.contextIsolated) {
     console.error(error)
   }
 } else {
-  // @ts-ignore
+  // @ts-expect-error - Fallback for non-isolated context (legacy Electron)
   window.electron = electronAPI
-  // @ts-ignore
+  // @ts-expect-error - Fallback for non-isolated context (legacy Electron)
   window.api = api
 }
