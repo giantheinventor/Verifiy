@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useRef, useEffect } from 'react'
 import { downsampleTo16k, createPcmBlob } from '../utils/audioUtils'
 import Icons from './Icons'
 import type { Blob as GeminiBlob } from '@google/genai'
@@ -16,7 +16,7 @@ export function AudioCapture({
   inputMode,
   onAudioData
 }: AudioCaptureProps): React.JSX.Element {
-  const [volume, setVolume] = useState(0)
+
 
   // Refs for each stream
   const micStreamRef = useRef<MediaStream | null>(null)
@@ -24,7 +24,8 @@ export function AudioCapture({
 
   // Refs for audio nodes
   const audioContextRef = useRef<AudioContext | null>(null)
-  const analyserRef = useRef<AnalyserNode | null>(null)
+  /* Analyser removed */
+  // const analyserRef = useRef<AnalyserNode | null>(null)
   const processorRef = useRef<ScriptProcessorNode | null>(null)
   const mergerRef = useRef<ChannelMergerNode | null>(null)
   const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
@@ -33,30 +34,7 @@ export function AudioCapture({
   const screenGainRef = useRef<GainNode | null>(null)
   const animationFrameRef = useRef<number | null>(null)
 
-  const updateVolume = (): void => {
-    if (!analyserRef.current) return
 
-    const dataArray = new Uint8Array(analyserRef.current.fftSize)
-    analyserRef.current.getByteTimeDomainData(dataArray)
-
-    let sum = 0
-    for (let i = 0; i < dataArray.length; i++) {
-      const normalized = (dataArray[i] - 128) / 128
-      sum += normalized * normalized
-    }
-    const rms = Math.sqrt(sum / dataArray.length)
-    const volumeLevel = Math.min(255, Math.round(rms * 255))
-
-    const freqArray = new Uint8Array(analyserRef.current.frequencyBinCount)
-    analyserRef.current.getByteFrequencyData(freqArray)
-    let maxFreq = 0
-    for (let i = 0; i < freqArray.length; i++) {
-      if (freqArray[i] > maxFreq) maxFreq = freqArray[i]
-    }
-
-    setVolume(Math.max(volumeLevel, maxFreq))
-    animationFrameRef.current = requestAnimationFrame(updateVolume)
-  }
 
   // Initialize audio context and shared nodes
   const initAudioContext = (): AudioContext => {
@@ -67,12 +45,6 @@ export function AudioCapture({
     // Create merger for combining sources
     const merger = audioContext.createChannelMerger(2)
     mergerRef.current = merger
-
-    // Create analyser
-    const analyser = audioContext.createAnalyser()
-    analyser.fftSize = 2048
-    analyser.smoothingTimeConstant = 0.3
-    analyserRef.current = analyser
 
     // Create processor for sending to Gemini
     const processor = audioContext.createScriptProcessor(4096, 1, 1)
@@ -90,9 +62,8 @@ export function AudioCapture({
     const silentGain = audioContext.createGain()
     silentGain.gain.value = 0
 
-    // Connect: merger -> analyser -> processor -> silentGain -> destination
-    merger.connect(analyser)
-    analyser.connect(processor)
+    // Connect: merger -> processor -> silentGain -> destination
+    merger.connect(processor)
     processor.connect(silentGain)
     silentGain.connect(audioContext.destination)
 
@@ -136,9 +107,7 @@ export function AudioCapture({
       micSourceRef.current = micSource
       micGainRef.current = micGain
 
-      if (!animationFrameRef.current) {
-        updateVolume()
-      }
+
     } catch (e) {
       console.error('Mic capture error:', e)
     }
@@ -191,9 +160,7 @@ export function AudioCapture({
       screenSourceRef.current = screenSource
       screenGainRef.current = screenGain
 
-      if (!animationFrameRef.current) {
-        updateVolume()
-      }
+
     } catch (e) {
       console.error('Screen capture error:', e)
     }
@@ -222,11 +189,9 @@ export function AudioCapture({
     processorRef.current = null
     mergerRef.current?.disconnect()
     mergerRef.current = null
-    analyserRef.current = null
+
     audioContextRef.current?.close()
     audioContextRef.current = null
-
-    setVolume(0)
   }
 
   // Derive enabled states from inputMode
@@ -272,7 +237,7 @@ export function AudioCapture({
   return (
     <div
       className="audio-capture-container"
-      style={{ display: 'flex', alignItems: 'center', gap: '20px' }}
+      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
     >
       <button
         className={`mic-button audio-capture-btn ${isListening ? 'listening' : ''}`}
@@ -282,39 +247,6 @@ export function AudioCapture({
         {/* Soundwave icon - always the same */}
         <Icons.Soundwave size={80} />
       </button>
-
-      {/* Volume Meter */}
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: '5px'
-        }}
-      >
-        <div
-          style={{
-            width: '20px',
-            height: '150px',
-            background: 'rgba(255,255,255,0.1)',
-            borderRadius: '10px',
-            overflow: 'hidden',
-            display: 'flex',
-            flexDirection: 'column-reverse'
-          }}
-        >
-          <div
-            style={{
-              width: '100%',
-              height: `${(volume / 255) * 100}%`,
-              background: volume > 200 ? '#FF3B30' : volume > 100 ? '#FFCC00' : '#4CD964',
-              transition: 'height 0.05s, background 0.1s',
-              borderRadius: '10px'
-            }}
-          />
-        </div>
-        <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)' }}>{volume}</span>
-      </div>
     </div>
   )
 }

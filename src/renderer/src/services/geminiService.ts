@@ -258,6 +258,7 @@ export async function connectToLiveSession(callbacks: LiveSessionCallbacks) {
   exaggerated, or inflammatory. 
   Look for context: If the claim is connected to a previous claim call the tool with the combined claim.
   Only group claims that are directly related to each other.
+  If the context of the claim is longer than 10 seconds call the tool with the combined claims up until this point and start a new claim context for following claims.
   Only call the tool if it is an actual statement of fact. Do not call the tool for opinions, 
   personal beliefs, or subjective statements.
   Ignore Sentiment: Do not let the tone (angry, joking, sarcastic) prevent you from extracting the underlying claim.
