@@ -278,7 +278,10 @@ function createWindow(): void {
 
 // --- App Lifecycle ---
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Initialize token manager (async load from disk)
+  await tokenManager.init()
+
   electronApp.setAppUserModelId('com.verify.app')
 
   app.on('browser-window-created', (_, window) => {
@@ -327,12 +330,15 @@ app.whenReady().then(() => {
         mainWindow?.webContents.send('gemini-data', { type: 'setup_complete', data })
       })
       
-      listeningAgent.on('claim_detected', (data) => {
+      listeningAgent.on('claim_detected', (data: unknown) => {
         console.log('Claim detected:', data)
         // Note: ListeningAgent already sends 'tool_call' event to renderer via notifyRenderer
         
-        // Auto-Start Fact Checking
-        const toolData = data as { args: { claim_title?: string; claim_text?: string } }
+        // Type guard for claim data
+        interface ClaimDetectedData {
+          args?: { claim_title?: string; claim_text?: string }
+        }
+        const toolData = data as ClaimDetectedData
         const claimText = toolData.args?.claim_text
         const claimTitle = toolData.args?.claim_title || 'Claim'
         

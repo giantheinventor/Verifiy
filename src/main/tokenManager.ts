@@ -1,14 +1,10 @@
 import { safeStorage, app, BrowserWindow } from 'electron'
 import { join } from 'path'
-import { writeFileSync, readFileSync, existsSync, unlinkSync } from 'fs'
-import dotenv from 'dotenv'
+import { promises as fs } from 'fs'
 
-// Load environment variables
-dotenv.config()
-
-// OAuth Configuration (from .env, must match index.ts)
-const CLIENT_ID = process.env.CLIENT_ID || ''
-const CLIENT_SECRET = process.env.CLIENT_SECRET || ''
+// OAuth Configuration (from electron-vite env)
+const CLIENT_ID = import.meta.env.MAIN_VITE_CLIENT_ID || ''
+const CLIENT_SECRET = import.meta.env.MAIN_VITE_CLIENT_SECRET || ''
 
 // Token refresh buffer (refresh 5 minutes before expiry)
 const REFRESH_BUFFER_MS = 5 * 60 * 1000
@@ -32,8 +28,14 @@ export class TokenManager {
   constructor() {
     // Determine path for secure storage file
     this.storagePath = join(app.getPath('userData'), TOKEN_FILE_NAME)
-    // Try to load refresh token from secure storage on init
-    this.loadRefreshToken()
+    // Async load is called from init() after app is ready
+  }
+
+  /**
+   * Initialize async operations (call after app.whenReady)
+   */
+  async init(): Promise<void> {
+    await this.loadRefreshToken()
   }
 
   /**
@@ -177,13 +179,13 @@ export class TokenManager {
   }
 
   /**
-   * Save refresh token to secure storage (Disk)
+   * Save refresh token to secure storage (Disk) - async
    */
-  private saveRefreshToken(token: string): void {
+  private async saveRefreshToken(token: string): Promise<void> {
     try {
       if (safeStorage.isEncryptionAvailable()) {
         const encrypted = safeStorage.encryptString(token)
-        writeFileSync(this.storagePath, encrypted)
+        await fs.writeFile(this.storagePath, encrypted)
         console.log('[TokenManager] Refresh token encrypted and saved to disk')
       } else {
         console.warn('[TokenManager] Encryption not available! Cannot save secure token.')
@@ -194,29 +196,32 @@ export class TokenManager {
   }
 
   /**
-   * Load refresh token from secure storage (Disk)
+   * Load refresh token from secure storage (Disk) - async
    */
-  private loadRefreshToken(): void {
+  private async loadRefreshToken(): Promise<void> {
     try {
-      if (!existsSync(this.storagePath)) {
+      // Check if file exists by trying to access it
+      try {
+        await fs.access(this.storagePath)
+      } catch {
         console.log('[TokenManager] No saved token found.')
         return
       }
 
       if (safeStorage.isEncryptionAvailable()) {
-        const encrypted = readFileSync(this.storagePath)
+        const encrypted = await fs.readFile(this.storagePath)
         const decrypted = safeStorage.decryptString(encrypted)
         
         this.refreshToken = decrypted
         console.log('[TokenManager] Refresh token loaded and decrypted from disk.')
         
         // Immediately try to get a fresh access token using this refresh token
-        this.refreshAccessToken()
+        await this.refreshAccessToken()
       }
     } catch (error) {
       console.error('[TokenManager] Failed to load refresh token:', error)
       // If file is corrupt, delete it
-      try { unlinkSync(this.storagePath) } catch {}
+      try { await fs.unlink(this.storagePath) } catch { /* ignore */ }
     }
   }
 
@@ -243,12 +248,8 @@ export class TokenManager {
       this.refreshTimer = null
     }
     
-    // Remove file from disk
-    try {
-      if (existsSync(this.storagePath)) {
-        unlinkSync(this.storagePath)
-      }
-    } catch (e) { console.error(e) }
+    // Remove file from disk async (fire and forget)
+    fs.unlink(this.storagePath).catch(() => { /* ignore if doesn't exist */ })
 
     console.log('[TokenManager] Tokens cleared and storage wiped')
     
