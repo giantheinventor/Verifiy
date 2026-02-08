@@ -15,7 +15,7 @@ import { createServer, type Server, type IncomingMessage, type ServerResponse } 
 import type { AddressInfo } from 'net'
 import { randomBytes, createHash } from 'crypto'
 import { tokenManager } from './tokenManager'
-import { ListeningAgent, runFactCheck, closeAllAgents } from './geminiService'
+import { ListeningAgent, runFactCheck } from './geminiService'
 
 // Initialize electron-audio-loopback before app.whenReady
 initMain()
@@ -230,7 +230,6 @@ function createWindow(): void {
 
   mainWindow.on('closed', () => {
     mainWindow = null
-    closeAllAgents() // Sicherstellen, dass Agents sterben wenn Fenster zugeht
     if (oauthServer) {
       oauthServer.close()
       oauthServer = null
@@ -425,6 +424,5 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
   if (oauthServer) { oauthServer.close(); oauthServer = null; }
-  closeAllAgents()
   if (process.platform !== 'darwin') app.quit()
 })

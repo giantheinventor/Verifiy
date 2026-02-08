@@ -355,40 +355,9 @@ export async function runFactCheck(
 }
 
 
-
-
 // ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
-
-// Track active agents for cleanup
-const activeAgents: Map<string, ListeningAgent> = new Map()
-
-/**
- * Register an agent for cleanup tracking
- */
-export function registerAgent(id: string, agent: ListeningAgent): void {
-  activeAgents.set(id, agent)
-}
-
-/**
- * Unregister an agent from cleanup tracking
- */
-export function unregisterAgent(id: string): void {
-  activeAgents.delete(id)
-}
-
-/**
- * Close all active agents (for cleanup on app quit)
- */
-export function closeAllAgents(): void {
-  for (const [id, agent] of activeAgents) {
-    console.log(`Closing agent: ${id}`)
-    agent.disconnect()
-  }
-  activeAgents.clear()
-}
-
 
 /**
  * Cleans a list of sources, resolves redirects, and extracts real domains.
