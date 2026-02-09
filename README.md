@@ -10,7 +10,7 @@ A macOS only desktop application that listens to audio from your microphone and/
 - **🔐 Secure Authentication** - Log in with your Google Account (OAuth) or use your own API Key.
 - **📊 Verdict Display** - Clear verdicts (True, False, Mixed, Unverified) with source citations.
 - **🌗 Dark/Light Mode** - Themed UI that respects system preferences.
-- **⚡ Fast & Efficient** - Powered by Gemini 2.5 Flash for low-latency verification.
+- **⚡ Fast & Efficient** - Powered by Gemini for low-latency verification.
 
 ## Authentication Modes
 
@@ -22,7 +22,7 @@ Sign in securely with your Google Account. This is the easiest way to get starte
 - Approve the app permissions.
 - You're ready to go!
 
-### 2. API Key (Recommended)
+### 2. API Key
 We recommend using your own API key directly:
 - Generate a key at [Google AI Studio](https://aistudio.google.com/).
 - Open the Sidebar -> Manage API Key.
@@ -33,7 +33,7 @@ We recommend using your own API key directly:
 1. **Launch the App**.
 2. **Authenticate** using Google Login or an API Key via the Sidebar settings.
 3. **Select Input**: Choose Mic, Screen (System Audio), or Both.
-4. **Start Listening**: Click the large soundwave button.
+4. **Start Listening**: Click the soundwave button.
 5. **View Results**: As claims are detected, cards will appear with verification results and sources.
 
 **Tip:** Click the **?** button in the bottom right for a guided walkthrough of the app's features.
@@ -58,8 +58,8 @@ Create a `.env` file in the project root for development credentials:
 
 ```env
 # Required for OAuth (Development Only)
-CLIENT_ID=your_google_cloud_client_id
-CLIENT_SECRET=your_google_cloud_client_secret
+MAIN_VITE_CLIENT_ID=your_google_cloud_client_id
+MAIN_VITE_CLIENT_SECRET=your_google_cloud_client_secret
 ```
 
 ### Development
@@ -70,18 +70,9 @@ Run the renderer and main process in development mode:
 npm run dev
 ```
 
-### Build
-
-Build the application. We only support macOS:
-
-```bash
-# For macOS
-npm run build:mac
-```
-
 ## Tech Stack
 
 - **Electron** - macos desktop runtime
 - **React + TypeScript** - UI framework
-- **Gemini 2.5 Flash** - Multimodal AI model for audio processing and reasoning
+- **Gemini 3/2.5 Flash** - Multimodal AI model for audio processing and reasoning
 - **Google Search Grounding** - For up-to-date fact verification
