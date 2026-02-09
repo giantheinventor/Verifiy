@@ -11,11 +11,11 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { initMain } from 'electron-audio-loopback'
-import { createServer, IncomingMessage, ServerResponse } from 'http'
-import type { AddressInfo } from 'net' // Server import entfernt, da nicht genutzt
+import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'http'
+import type { AddressInfo } from 'net'
 import { randomBytes, createHash } from 'crypto'
 import { tokenManager } from './tokenManager'
-import { ListeningAgent, runFactCheck, closeAllAgents } from './geminiService'
+import { ListeningAgent, runFactCheck } from './geminiService'
 
 // Initialize electron-audio-loopback before app.whenReady
 initMain()
@@ -27,7 +27,7 @@ const CLIENT_SECRET = import.meta.env.MAIN_VITE_CLIENT_SECRET || ''
 
 // Store main window reference for IPC
 let mainWindow: BrowserWindow | null = null
-let oauthServer: any | null = null // Typ auf any oder Server ändern
+let oauthServer: Server | null = null
 
 // PKCE state
 let codeVerifier: string | null = null
@@ -230,7 +230,6 @@ function createWindow(): void {
 
   mainWindow.on('closed', () => {
     mainWindow = null
-    closeAllAgents() // Sicherstellen, dass Agents sterben wenn Fenster zugeht
     if (oauthServer) {
       oauthServer.close()
       oauthServer = null
@@ -278,7 +277,10 @@ function createWindow(): void {
 
 // --- App Lifecycle ---
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Initialize token manager (async load from disk)
+  await tokenManager.init()
+
   electronApp.setAppUserModelId('com.verify.app')
 
   app.on('browser-window-created', (_, window) => {
@@ -327,12 +329,15 @@ app.whenReady().then(() => {
         mainWindow?.webContents.send('gemini-data', { type: 'setup_complete', data })
       })
       
-      listeningAgent.on('claim_detected', (data) => {
+      listeningAgent.on('claim_detected', (data: unknown) => {
         console.log('Claim detected:', data)
         // Note: ListeningAgent already sends 'tool_call' event to renderer via notifyRenderer
         
-        // Auto-Start Fact Checking
-        const toolData = data as { args: { claim_title?: string; claim_text?: string } }
+        // Type guard for claim data
+        interface ClaimDetectedData {
+          args?: { claim_title?: string; claim_text?: string }
+        }
+        const toolData = data as ClaimDetectedData
         const claimText = toolData.args?.claim_text
         const claimTitle = toolData.args?.claim_title || 'Claim'
         
@@ -419,6 +424,5 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (oauthServer) { oauthServer.close(); oauthServer = null; }
-  closeAllAgents()
   if (process.platform !== 'darwin') app.quit()
 })

@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, Modality } from '@google/genai'
-import type { FunctionDeclaration } from '@google/genai'
+import type { FunctionDeclaration, Session } from '@google/genai'
 
 // --- Authentication Management ---
 
@@ -132,11 +132,25 @@ export async function verifyClaimWithSearch(
     Use the language of the claim for the content.
   `
 
-  // Helper to extract sources
-  const extractSources = (response: any) => {
-     return response.candidates?.[0]?.groundingMetadata?.groundingChunks
-      ?.map((chunk: any) => chunk.web)
-      .filter((web: any): web is { title: string; uri: string } => !!web) || []
+  // Helper to extract sources from Gemini response (handles SDK's optional properties)
+  const extractSources = (response: unknown): { title: string; uri: string }[] => {
+    const resp = response as {
+      candidates?: Array<{
+        groundingMetadata?: {
+          groundingChunks?: Array<{
+            web?: { title?: string; uri?: string }
+          }>
+        }
+      }>
+    }
+    return (
+      resp.candidates?.[0]?.groundingMetadata?.groundingChunks
+        ?.map((chunk) => chunk.web)
+        .filter(
+          (web): web is { title: string; uri: string } =>
+            !!web && typeof web.title === 'string' && typeof web.uri === 'string'
+        ) || []
+    )
   }
 
   // Attempt 1: Model 3 (Text-based) - Single fail-fast attempt
@@ -241,7 +255,9 @@ export interface LiveSessionCallbacks {
 /**
  * Connect to Gemini Live session for real-time audio fact-checking
  */
-export async function connectToLiveSession(callbacks: LiveSessionCallbacks) {
+export async function connectToLiveSession(
+  callbacks: LiveSessionCallbacks
+): Promise<Session> {
   const listeningAgentPrompt = `
   You are a high-sensitivity, objective Fact-Checking Listener. 
   Your sole purpose is to monitor audio for any assertion 
